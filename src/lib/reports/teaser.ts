@@ -71,7 +71,14 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
       id: `row-${a.question_index}`,
       where: "row",
       claim: `Question ${a.question_index + 1}: status ${a.status}; named instead: ${namedInstead.join(", ") || "none"}`,
-      evidence: [{ kind: "answer_quote", ref: a.id, quote: a.evidence ?? undefined, label: a.question }],
+      evidence: [
+        { kind: "answer_quote", ref: a.id, label: `Question: ${a.question}` },
+        ...(a.evidence ? [{ kind: "answer_quote" as const, ref: a.id, quote: a.evidence, label: `How ${c.site_name ?? c.name} appeared` }] : []),
+        ...a.clinics_named
+          .filter((n) => n.status === "recommended" && namedInstead.includes(n.name))
+          .map((n) => ({ kind: "answer_quote" as const, ref: a.id, quote: n.quote, label: `Recommended: ${n.name}` })),
+        ...(!a.evidence ? [{ kind: "answer_quote" as const, ref: a.id, label: `${c.site_name ?? c.name} does not appear in the answer text` }] : []),
+      ],
     });
     return {
       questionIndex: a.question_index,

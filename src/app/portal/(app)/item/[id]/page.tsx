@@ -34,7 +34,8 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
   const data = await getMessage(id);
   if (!data) notFound();
   const m = data.message;
-  const claims = (m.claims as Claim[]) ?? [];
+  // the email repeats two report findings: show each claim once
+  const claims = ((m.claims as Claim[]) ?? []).filter((c, i, all) => all.findIndex((x) => x.claim === c.claim) === i);
   const flags = (m.flags as Flag[]) ?? [];
   const actionable = ["pending_review", "held"].includes(m.status as string);
 
@@ -136,39 +137,31 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
         {claims.length === 0 ? (
           <p className="muted">This message makes no factual claims about the clinic.</p>
         ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: "40%" }}>Claim</th>
-                  <th>Stored evidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claims.map((c, i) => (
-                  <tr key={i}>
-                    <td>
-                      {c.claim}
-                      {c.verified === false ? <div className="pill pill-bad">no matching evidence</div> : null}
-                    </td>
-                    <td className="small">
-                      {c.evidence.map((e, j) => (
-                        <div key={j} style={{ marginBottom: 8 }}>
-                          {e.label ? <strong>{e.label}: </strong> : null}
-                          {e.quote ? <q>{e.quote}</q> : null}{" "}
-                          {e.url ? (
-                            <a href={e.url} target="_blank" rel="noreferrer">
-                              {e.url}
-                            </a>
-                          ) : null}
-                        </div>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ol className={styles.claims}>
+            {claims.map((c, i) => (
+              <li key={i}>
+                <div className={styles.claim}>
+                  {c.claim}
+                  {c.verified === false ? <span className="pill pill-bad"> no matching evidence</span> : null}
+                </div>
+                <ul className={styles.evidence}>
+                  {c.evidence.map((e, j) => (
+                    <li key={j}>
+                      {e.kind === "pages_read" ? <strong>Pages read: </strong> : null}
+                      {e.label ? <strong>{e.label}</strong> : null}
+                      {e.label && (e.quote || e.url) ? ": " : null}
+                      {e.quote ? <q>{e.quote}</q> : null}{" "}
+                      {e.url ? (
+                        <a href={e.url} target="_blank" rel="noreferrer">
+                          {e.url}
+                        </a>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
         )}
       </section>
 

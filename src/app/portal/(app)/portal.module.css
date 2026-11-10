@@ -11,3 +11,8 @@
 @media (min-width: 900px) { .grid2 { grid-template-columns: 1fr 1fr; } }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; font-size: .9rem; }
 .preview { border: 1px solid var(--line); border-radius: 8px; width: 100%; height: 640px; background: #fff; }
+.claims { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.claims > li { border-top: 1px solid var(--line); padding-top: 12px; }
+.claim { font-weight: 600; }
+.evidence { margin: 6px 0 0; padding-left: 18px; font-size: .9rem; color: var(--ink-2); word-break: break-word; }
+.evidence li + li { margin-top: 4px; }
