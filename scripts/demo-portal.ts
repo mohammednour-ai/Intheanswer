@@ -65,6 +65,22 @@ async function main() {
     await sql`insert into audit_checks (audit_id, check_key, result, summary, evidence, is_gap, severity, finding_text)
               values (${audit.id}, ${k}, ${r}, ${text}, ${sql.json(ev as never)}, true, ${sev}, ${text})`;
   }
+  // DEMO site test results (invented)
+  const [srun] = await sql<{ id: string }[]>`
+    insert into site_test_runs (clinic_id, run_label, status, page_cap, pages_crawled, perf_source, finished_at)
+    values (${clinic.id}, ${"demo-" + Date.now()}, 'done', 40, 18, 'lighthouse_local', now()) returning id`;
+  const siteChecks = [
+    ["booking_path", "booking", "needs_work", 100, "No booking link or phone number was found on the home page or the pages it links to.",
+      "From your home page and the 6 pages it links to, we did not find a booking link or a phone number a patient can tap."],
+    ["speed_mobile", "speed", "needs_work", 88, "On mobile, in the lab test the main content took 4.6 s to appear (good is 2.5 s or less) (a Lighthouse lab test run from our server).",
+      "On a simulated phone, in the lab test the main content took 4.6 s to appear (good is 2.5 s or less) (a Lighthouse lab test run from our server of your home page)."],
+    ["accessibility", "accessibility", "could_not_test", 76, "Accessibility could not be tested in a browser (automated checks, not a full accessibility audit).", null],
+    ["https", "security", "pass", 86, "The site is served over HTTPS.", null],
+  ] as const;
+  for (const [k, cat, r, imp, line, ft] of siteChecks) {
+    await sql`insert into site_test_checks (run_id, check_key, category, result, impact, line, finding_text, evidence)
+              values (${srun.id}, ${k}, ${cat}, ${r}, ${imp}, ${line}, ${ft}, ${sql.json([{ kind: "pages_read", label: "DEMO evidence" }])})`;
+  }
   await computeClinicResults(clinic.id, run.id);
   const [score] = await sql<{ id: string }[]>`
     insert into scores (clinic_id, test_run_id, audit_id, recommended, listed_only, not_named, total, confirmed_findings, qualifies, reason)

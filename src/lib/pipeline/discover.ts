@@ -83,15 +83,14 @@ async function handleDiscover(ctx: JobContext) {
       summary.reasons[d.reason] = (summary.reasons[d.reason] ?? 0) + 1;
       continue;
     }
-    // a clinic found under two sectors stays with the first one
+    // Only place_id (and the website we will verify by reading it) is kept. The
+    // business name from Places is used as a working label until the contact
+    // step replaces it with the name the clinic writes on its own site.
     const rows = await sql<{ id: string; inserted: boolean }[]>`
-      insert into clinics (place_id, name, address, city_id, sector_id, phone, website, domain, rating, review_count,
-                           source, places_raw, places_fetched_at)
-      values (${p.id}, ${p.displayName?.text ?? "(unnamed)"}, ${p.formattedAddress ?? null}, ${cityId}, ${sectorId},
-              ${p.nationalPhoneNumber ?? null}, ${p.websiteUri ?? null}, ${d.domain ?? null}, ${p.rating ?? null},
-              ${p.userRatingCount ?? null}, 'places', ${sql.json(p as never)}, now())
-      on conflict (place_id) do update set places_raw = excluded.places_raw, places_fetched_at = now(),
-        rating = excluded.rating, review_count = excluded.review_count, phone = excluded.phone, updated_at = now()
+      insert into clinics (place_id, name, city_id, sector_id, website, domain, source)
+      values (${p.id}, ${p.displayName?.text ?? "(unnamed)"}, ${cityId}, ${sectorId},
+              ${p.websiteUri ?? null}, ${d.domain ?? null}, 'places')
+      on conflict (place_id) do update set updated_at = now()
       returning id, (xmax = 0) as inserted`;
     const row = rows[0];
     if (row.inserted) {
@@ -104,14 +103,12 @@ async function handleDiscover(ctx: JobContext) {
   return summary;
 }
 
-/** Places content other than place_id is not kept longer than 30 days. */
+/** Safety net: Places content is never stored; clear anything left by older versions. */
 async function handlePurgePlaces(ctx: JobContext) {
   const sql = db();
   const r = await sql`
-    update clinics set places_raw = null, rating = null, review_count = null,
-      phone = case when phone_confirmed_on_site then phone else null end,
-      address = case when address_confirmed_on_site then address else null end
-    where places_fetched_at < now() - interval '30 days' and places_raw is not null
+    update clinics set places_raw = null, rating = null, review_count = null
+    where places_raw is not null or rating is not null or review_count is not null
     returning id`;
   await ctx.log("purged places data", { clinics: r.length });
   return { purged: r.length };

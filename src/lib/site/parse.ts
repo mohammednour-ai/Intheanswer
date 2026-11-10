@@ -11,6 +11,14 @@ export interface ParsedPage {
   jsonLd: { raw: string; parsed: unknown | null; types: string[] }[];
   hasMicrodata: boolean;
   h1: string[];
+  /** Raw page facts used by the site test. */
+  images: { src: string; alt: string | null }[];
+  headings: { level: number; text: string }[];
+  viewport: string | null;
+  lang: string | null;
+  /** http:// resources loaded by an https page (mixed content). */
+  insecureResources: string[];
+  telLinks: string[];
 }
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,24}/g;
@@ -79,6 +87,36 @@ export function parsePage(url: string, html: string): ParsedPage {
     .get()
     .filter(Boolean);
 
+  const images: ParsedPage["images"] = [];
+  $("img").each((_, el) => {
+    const raw = $(el).attr("src") ?? $(el).attr("data-src") ?? "";
+    if (!raw || raw.startsWith("data:")) return;
+    let src = raw;
+    try {
+      src = new URL(raw, url).toString();
+    } catch {
+      /* keep raw */
+    }
+    const alt = $(el).attr("alt");
+    images.push({ src, alt: alt === undefined ? null : alt });
+  });
+  const headings: ParsedPage["headings"] = [];
+  $("h1, h2, h3, h4, h5, h6").each((_, el) => {
+    headings.push({ level: Number(el.tagName.slice(1)), text: normalizeSpace($(el).text()).slice(0, 120) });
+  });
+  const viewport = $('meta[name="viewport"]').attr("content")?.trim() ?? null;
+  const lang = $("html").attr("lang") ?? null;
+  const insecureResources: string[] = [];
+  if (url.startsWith("https://")) {
+    $("img[src], script[src], iframe[src], source[src], video[src], audio[src], link[rel=stylesheet][href]").each((_, el) => {
+      const v = $(el).attr("src") ?? $(el).attr("href") ?? "";
+      if (/^http:\/\//i.test(v)) insecureResources.push(v);
+    });
+  }
+  const telLinks = $('a[href^="tel:"]')
+    .map((_, el) => $(el).attr("href") ?? "")
+    .get();
+
   $("script, style, noscript, svg, template, iframe").remove();
   // keep line structure from block elements
   $("br").replaceWith("\n");
@@ -96,7 +134,10 @@ export function parsePage(url: string, html: string): ParsedPage {
     .map((e) => ({ ...e, email: e.email.trim().toLowerCase().replace(/^[.]+|[.]+$/g, "") }))
     .filter((e) => /^[^@\s]+@[^@\s]+\.[a-z]{2,24}$/.test(e.email) && !JUNK_EMAIL_RE.test(e.email));
 
-  return { url, title, metaDescription, text, homeTextLength: text.length, links, emails: cleaned, jsonLd, hasMicrodata, h1 };
+  return {
+    url, title, metaDescription, text, homeTextLength: text.length, links, emails: cleaned, jsonLd, hasMicrodata, h1,
+    images, headings, viewport, lang, insecureResources, telLinks,
+  };
 }
 
 /** Exact-substring evidence check, tolerant of whitespace and case. */

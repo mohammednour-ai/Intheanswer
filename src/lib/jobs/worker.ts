@@ -3,7 +3,7 @@ import { localDate } from "../time";
 import { runJobs, type Handler, type RunResult } from "./queue";
 import { handlers } from "./handlers";
 
-/** Jobs that call the Claude API and so stop when the daily spend cap is reached. */
+/** Jobs that call paid APIs and so stop when the daily spend cap is reached. */
 export const CLAUDE_JOBS = new Set([
   "test_city",
   "audit_clinic",
@@ -13,15 +13,22 @@ export const CLAUDE_JOBS = new Set([
   "build_full_report",
   "monthly_retest",
   "regenerate_message",
+  "review_lookup",
+  "review_analysis",
+  "site_test",
+  "propose_pages",
 ]);
 
 /** Jobs that are part of the outreach pipeline and stop on the kill switch. */
 const PIPELINE_JOBS = new Set(["discover", "find_contact", ...CLAUDE_JOBS]);
 
+/** Today's spend across all paid APIs (Claude, Places, ...). */
+export const spendToday = () => claudeSpendToday();
+
 export async function claudeSpendToday(): Promise<number> {
   const [r] = await db()<{ usd: number | null }[]>`
     select sum(cost_usd)::float as usd from cost_records
-    where provider='anthropic' and (at at time zone 'America/Toronto')::date = ${localDate(new Date())}::date`;
+    where (at at time zone 'America/Toronto')::date = ${localDate(new Date())}::date`;
   return r.usd ?? 0;
 }
 
@@ -41,7 +48,7 @@ export async function gate(kind: string): Promise<string | null> {
     if (over !== s.pipeline_paused_for_spend) {
       await sql`update app_settings set pipeline_paused_for_spend=${over} where id`;
     }
-    if (over) return `Claude spend cap ${s.claude_daily_spend_cap_usd} USD reached (${spent.toFixed(2)})`;
+    if (over) return `daily API spend cap ${s.claude_daily_spend_cap_usd} USD reached (${spent.toFixed(2)})`;
   }
   return null;
 }

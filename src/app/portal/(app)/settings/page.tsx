@@ -130,7 +130,7 @@ export default async function SettingsPage() {
           </div>
           <div className="row">
             <div>
-              <label htmlFor="spend">Daily Claude API spend cap (USD)</label>
+              <label htmlFor="spend">Daily API spend cap, all paid APIs (USD)</label>
               <input id="spend" name="claude_daily_spend_cap_usd" type="number" min={0} step="0.01" defaultValue={s.claude_daily_spend_cap_usd} />
             </div>
             <div>
@@ -138,7 +138,21 @@ export default async function SettingsPage() {
               <input id="firstn" name="auto_review_first_n" type="number" min={0} defaultValue={s.auto_review_first_n} />
             </div>
           </div>
-          <button className="btn btn-primary">Save sending settings</button>
+          <div className="row">
+            <div>
+              <label htmlFor="ppm">Monthly plan: new pages per month</label>
+              <input id="ppm" name="pages_per_month" type="number" min={0} max={20} defaultValue={s.pages_per_month} />
+            </div>
+            <div>
+              <label htmlFor="cap2">Site test page cap per site</label>
+              <input id="cap2" name="crawl_page_cap" type="number" min={5} max={200} defaultValue={s.crawl_page_cap} />
+            </div>
+            <div>
+              <label htmlFor="cache">Speed results cache (days)</label>
+              <input id="cache" name="api_cache_days" type="number" min={1} max={30} defaultValue={s.api_cache_days} />
+            </div>
+          </div>
+          <button className="btn btn-primary">Save settings</button>
         </form>
       </section>
 

@@ -48,6 +48,10 @@ export async function saveSendingAction(form: FormData) {
   const firstN = num(form.get("auto_review_first_n"), 0, 1000) ?? 10;
   const warm = String(form.get("warmup_start_date") ?? "").trim() || null;
   if (warm && !/^\d{4}-\d{2}-\d{2}$/.test(warm)) throw new Error("warm-up date must be YYYY-MM-DD");
+  const pagesPerMonth = num(form.get("pages_per_month"), 0, 20) ?? 2;
+  const crawlCap = num(form.get("crawl_page_cap"), 5, 200) ?? 40;
+  const cacheDays = num(form.get("api_cache_days"), 1, 30) ?? 7;
+  await db()`update app_settings set pages_per_month=${pagesPerMonth}, crawl_page_cap=${crawlCap}, api_cache_days=${cacheDays} where id`;
   await db()`update app_settings set daily_cap_override=${cap}, send_window_start=${start}, send_window_end=${end},
              claude_daily_spend_cap_usd=${spend}, auto_review_first_n=${firstN}, warmup_start_date=${warm},
              updated_at=now() where id`;

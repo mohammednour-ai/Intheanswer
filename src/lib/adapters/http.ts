@@ -164,3 +164,39 @@ export async function fetchPage(url: string, opts: { useCache?: boolean } = {}):
 export function isEnvLive(): boolean {
   return env().EXTERNAL_MODE !== "replay";
 }
+
+/**
+ * Status-only probe for link and image checks (HEAD, then a 1-byte GET if HEAD
+ * is refused). Returns 0 when the request could not be made (network, DNS,
+ * timeout, robots): callers must treat 0 as "could not test", never as broken.
+ */
+export async function probeUrl(url: string): Promise<{ status: number; reason?: string }> {
+  return withRecording("probe", { url }, async () => {
+    try {
+      if (!(await robotsAllows(url))) return { status: 0, reason: "disallowed by robots.txt" };
+    } catch {
+      /* robots unreachable: try the request anyway */
+    }
+    await politeWait(hostOf(url));
+    for (const method of ["HEAD", "GET"] as const) {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 15_000);
+      try {
+        const res = await fetch(url, {
+          method,
+          redirect: "follow",
+          signal: ctrl.signal,
+          headers: { "user-agent": USER_AGENT, ...(method === "GET" ? { range: "bytes=0-0" } : {}) },
+        });
+        await res.body?.cancel().catch(() => {});
+        if (method === "HEAD" && (res.status === 405 || res.status === 501)) continue;
+        return { status: res.status };
+      } catch (e) {
+        if (method === "GET") return { status: 0, reason: (e as Error).message };
+      } finally {
+        clearTimeout(t);
+      }
+    }
+    return { status: 0, reason: "no response" };
+  });
+}

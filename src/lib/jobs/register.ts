@@ -5,3 +5,6 @@ import "../pipeline/test";
 import "../pipeline/audit/run";
 import "../pipeline/score";
 import "../pipeline/teaserJobs";
+import "../sitetest/run";
+import "../reviews/jobs";
+import "../pages/jobs";

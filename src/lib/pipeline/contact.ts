@@ -111,6 +111,7 @@ async function handleFindContact(ctx: JobContext) {
     runLabel: label,
   });
   await ctx.enqueue("audit_clinic", `audit:${clinicId}:${label}`, { clinicId, runLabel: label });
+  await ctx.enqueue("site_test", `sitetest:${clinicId}:${label}`, { clinicId, runLabel: label }, { maxAttempts: 2 });
   return { contact: r.primary.email, source: r.primary.sourceUrl };
 }
 

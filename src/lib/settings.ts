@@ -26,6 +26,9 @@ export interface AppSettings {
   retest_after_purchase_days: number;
   dns_verified: boolean;
   digest_hour_local: number;
+  pages_per_month: number;
+  crawl_page_cap: number;
+  api_cache_days: number;
 }
 
 export async function getSettings(): Promise<AppSettings> {

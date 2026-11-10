@@ -5,6 +5,8 @@
  *   npm run pipeline -- discover        queue step 1 for every active (sector, city)
  *   npm run pipeline -- run             run the worker until the queue is idle
  *   npm run pipeline -- site <url>      read a site and print contact + site-only checks (no Claude)
+ *   npm run pipeline -- sitetest <url>  full site test (crawl, speed, mobile, accessibility, ...)
+ *   npm run pipeline -- services <domain>  site test + page proposals + full report preview for a clinic
  *   npm run pipeline -- status          funnel counts and job states
  */
 import "../src/lib/jobs/register";
@@ -12,6 +14,12 @@ import { db, closeDb } from "../src/lib/db";
 import { enqueue } from "../src/lib/jobs/queue";
 import { runWorkerOnce } from "../src/lib/jobs/worker";
 import { readSite } from "../src/lib/site/crawl";
+import { runSiteTest, storeSiteTest } from "../src/lib/sitetest/run";
+import { proposeForClinic } from "../src/lib/pages/jobs";
+import { buildFullReportData, renderFullReport } from "../src/lib/reports/fullReport";
+import { htmlToPdf } from "../src/lib/reports/pdf";
+import { currentRunLabel } from "../src/lib/pipeline/runs";
+import fs from "node:fs/promises";
 import { findContacts } from "../src/lib/pipeline/contact";
 import { getRobots } from "../src/lib/adapters/http";
 import {
@@ -87,6 +95,48 @@ async function site(url: string) {
   }
 }
 
+async function sitetest(url: string) {
+  const out = await runSiteTest(url, { cap: Number(process.env.CAP ?? 40), cacheDays: 7 });
+  console.log(`pages crawled: ${out.crawl.pages.length} (cap ${out.crawl.cap}); speed source: ${out.perfSource ?? "none"}`);
+  if (out.notes.length) console.log("notes:", out.notes);
+  for (const c of out.checks) {
+    console.log(`  [${c.result}] ${c.key} (impact ${c.impact}): ${c.line}`);
+    for (const e of c.evidence.slice(0, 2)) console.log(`      evidence: ${e.url ?? ""} ${e.quote ? `"${e.quote.slice(0, 120)}"` : e.label?.slice(0, 160) ?? ""}`);
+  }
+}
+
+/** Dry run of the added services for one clinic (by domain): site test, page proposals, full report preview. */
+async function services(domain: string) {
+  const sql = db();
+  const [c] = await sql<{ id: string; website: string; name: string }[]>`select id, website, coalesce(site_name, name) as name from clinics where domain=${domain}`;
+  if (!c) throw new Error(`no clinic with domain ${domain}; run seed first`);
+  const label = currentRunLabel();
+  const t0 = Date.now();
+  const out = await runSiteTest(c.website, { cap: 40, cacheDays: 7 });
+  await storeSiteTest(c.id, label, out, 40);
+  console.log(`\n== ${c.name}: site test (${out.crawl.pages.length} pages, ${Math.round((Date.now() - t0) / 1000)} s, speed: ${out.perfSource ?? "none"})`);
+  if (out.notes.length) console.log("   notes:", out.notes.join(" | "));
+  for (const k of out.checks) console.log(`   [${k.result}] ${k.key}: ${k.line}`);
+  const [run] = await sql<{ id: string }[]>`select test_run_id as id from scores where clinic_id=${c.id} order by created_at desc limit 1`;
+  const p = await proposeForClinic(c.id, run?.id ?? null);
+  console.log(`\n== ${c.name}: proposed pages (${p.proposals.length})`);
+  p.proposals.forEach((x, i) => console.log(`   ${i + 1}. [${x.kind}] ${x.title}  (priority ${x.priority})\n      ${x.reason}`));
+  if (p.firstDraft) {
+    console.log(`\n== first draft: ${p.firstDraft.title}`);
+    console.log("   " + p.firstDraft.directAnswer.join(" "));
+    p.firstDraft.details.forEach((d) => console.log("   - " + d));
+    console.log(`   ${p.firstDraft.contact.address} | ${p.firstDraft.contact.phone} | ${p.firstDraft.contact.hours}`);
+    console.log(`   placeholders: ${p.firstDraft.placeholders.length}; JSON-LD: ${p.firstDraft.jsonLd["@type"]}`);
+  }
+  const data = await buildFullReportData(c.id);
+  const html = renderFullReport(data, { web: false });
+  await fs.mkdir("output", { recursive: true });
+  const file = `output/full-${domain}`;
+  await fs.writeFile(`${file}.html`, html);
+  await fs.writeFile(`${file}.pdf`, await htmlToPdf(html));
+  console.log(`\nwrote ${file}.html and ${file}.pdf`);
+}
+
 async function status() {
   const sql = db();
   console.table(await sql`select status::text, count(*)::int from clinics group by 1 order by 1`);
@@ -94,7 +144,7 @@ async function status() {
 }
 
 const [cmd, arg] = process.argv.slice(2);
-const main = { seed, discover, run, status, site: () => site(arg) }[cmd as "seed"];
+const main = { seed, discover, run, status, site: () => site(arg), sitetest: () => sitetest(arg), services: () => services(arg) }[cmd as "seed"];
 if (!main) {
   console.log("usage: npm run pipeline -- seed|discover|run|status|site <url>");
   process.exit(1);

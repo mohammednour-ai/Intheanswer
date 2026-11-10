@@ -8,6 +8,7 @@ import { checkAddressOnHome, checkAiCrawlers, checkContactEmail, checkMetaDescri
 import { readSemantics, semanticChecks, locate } from "./semantic";
 import { checkDirectories, isDirectory } from "./directories";
 import type { CheckOutcome } from "./types";
+import { env } from "../../env";
 
 /**
  * Step 4: audit the clinic's site and store every check with evidence.
@@ -84,7 +85,10 @@ async function handleAudit(ctx: JobContext) {
                status='audited', updated_at=now() where id=${clinicId}`;
     return a;
   });
-  await ctx.enqueue("score_clinic", `score:${clinicId}:${audit.id}`, { clinicId, auditId: audit.id, testRunId: run.id });
+  await ctx.enqueue("score_clinic", `score:${clinicId}:${audit.id}`, { clinicId, auditId: audit.id, testRunId: run.id, runLabel });
+  if (env().GOOGLE_PLACES_API_KEY) {
+    await ctx.enqueue("review_lookup", `reviewlookup:${clinicId}:${run.id}`, { clinicId, testRunId: run.id }, { maxAttempts: 2 });
+  }
   return {
     auditId: audit.id,
     pages: site.pages.length,

@@ -171,3 +171,73 @@ describe("teaser and verification gate", () => {
     expect(scanLanguage("No one can guarantee what an assistant will say.", "x")).toEqual([]);
   });
 });
+
+describe("gate rules for site test and review claims", () => {
+  beforeEach(resetData);
+
+  async function addSiteRun(clinicId: string, checks: { key: string; result: string; impact: number; text: string | null }[]) {
+    const sql = db();
+    const [run] = await sql<{ id: string }[]>`
+      insert into site_test_runs (clinic_id, run_label, status, page_cap, pages_crawled, finished_at)
+      values (${clinicId}, 'test', 'done', 40, 30, now()) returning id`;
+    for (const c of checks) {
+      await sql`insert into site_test_checks (run_id, check_key, category, result, impact, line, finding_text, evidence)
+                values (${run.id}, ${c.key}, 'x', ${c.result}, ${c.impact}, 'line', ${c.text}, ${sql.json([{ kind: "raw_source", url: "https://maplegrove.example/", label: "lab" }])})`;
+    }
+    return run.id;
+  }
+
+  it("the teaser may take one site finding when it is among the strongest, never two, never could-not-test", async () => {
+    const s = await setup();
+    await addSiteRun(s.clinicId, [
+      { key: "booking_path", result: "needs_work", impact: 100, text: "From your home page we did not find a booking link or a phone number a patient can tap." },
+      { key: "mobile_layout", result: "needs_work", impact: 92, text: "On a simulated phone your home page is wider than the screen." },
+      { key: "speed_mobile", result: "could_not_test", impact: 99, text: null },
+    ]);
+    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_111111111111");
+    const site = data.findings.filter((f) => f.source === "site");
+    expect(data.findings).toHaveLength(3);
+    expect(site).toHaveLength(1);
+    expect(site[0].checkKey).toBe("site:booking_path");
+    expect(data.findings.some((f) => f.checkKey === "site:speed_mobile")).toBe(false);
+    const draft = buildFirstEmail(data, { toEmail: "info@maplegrove.example", sourceUrl: "https://maplegrove.example/", reportUrl: "https://intheanswer.test/r/t" });
+    const v = await verifyTeaser({ data, draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v.data.findings).toHaveLength(3);
+    expect(v.flags.filter((f) => f.severity === "block")).toEqual([]);
+  });
+
+  it("a site check that turns out to be could-not-test can never be stated as a problem", async () => {
+    const s = await setup();
+    const runId = await addSiteRun(s.clinicId, [{ key: "booking_path", result: "needs_work", impact: 100, text: "From your home page we did not find a booking link." }]);
+    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_222222222222");
+    await db()`update site_test_checks set result='could_not_test' where run_id=${runId}`;
+    const v = await verifyTeaser({ data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v.flags.map((f) => f.code)).toContain("unverified_as_fact");
+    expect(v.passed).toBe(false);
+  });
+
+  it("a site finding whose text no longer matches the stored result is removed", async () => {
+    const s = await setup();
+    await addSiteRun(s.clinicId, [{ key: "booking_path", result: "needs_work", impact: 100, text: "Stored sentence." }]);
+    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_333333333333");
+    const f = data.findings.find((x) => x.source === "site")!;
+    f.text = "Your site has no way to book at all.";
+    const v = await verifyTeaser({ data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v.removed.map((r) => r.what)).toContain(f.title);
+  });
+
+  it("review numbers may not be baked into the stored report or the email", async () => {
+    const s = await setup();
+    const draft = { ...s.draft, bodyText: s.draft.bodyText.replace("Two things I noticed", "Your clinic has 7 reviews. Two things I noticed") };
+    const v = await verifyTeaser({ data: s.data, draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v.flags.map((f) => f.code)).toContain("review_number_stored");
+    expect(v.passed).toBe(false);
+  });
+
+  it("the stored teaser keeps only a marker for the live review table", async () => {
+    const s = await setup();
+    const html = renderTeaser(s.data);
+    expect(html).toContain("<!--LIVE_REVIEWS-->");
+    expect(html).not.toMatch(/Google Maps/);
+  });
+});

@@ -14,6 +14,7 @@ Status: **built in phases, dry run only.** Nothing is sent or charged until the 
 | 4 | Sending, approval queue, replies | |
 | 5 | Stripe and full-report delivery | |
 | 6 | Monthly retests | |
+| + | Added services: review analysis, full site test, answer pages | built, dry run on seeds |
 
 ## Local development
 
@@ -43,6 +44,70 @@ plain Postgres. Never apply it to a Supabase project.
   suppression by address and domain, max two cold contacts per clinic ever, auto-pause on >3% bounces or
   any complaint, DNS gate), per-type REVIEW/AUTO modes with "first N still reviewed", owner actions.
 - `src/app/portal`: owner portal (mobile first). Queue, Held, Sent, Replies, Overview, Settings.
+
+## Added services
+
+### Full site test (audit stage)
+Job `site_test`, run after the contact step. Polite crawl of the clinic's own site (robots.txt respected,
+one request per host every few seconds, page cap `crawl_page_cap`, default 40). Checks, each stored in
+`site_test_checks` with evidence, one plain line and a result of **pass / needs work / could not test**,
+sorted by patient impact:
+
+| Check | How |
+|---|---|
+| Booking or phone within two taps | links and tel: links on the home page and pages one link away |
+| Mobile layout | headless Chromium at 390x844 with a phone user agent: viewport, sideways scroll, text under 12px, tap targets under 24x24px |
+| Speed and Core Web Vitals, mobile and desktop | PageSpeed Insights when `PAGESPEED_API_KEY` is set (lab + real-visitor data); otherwise a local Lighthouse lab run, labelled as such |
+| Broken links and images | internal links from the crawl, up to 25 external links and 40 images; only a real 404/410 counts as broken |
+| Titles, descriptions, alt text, heading order | from the page source |
+| Accessibility | axe-core, WCAG 2.0 A/AA rules. Always labelled "automated checks, not a full accessibility audit" |
+| Crawlability | robots.txt, sitemap, AI crawlers blocked, text in the source vs only added by scripts |
+| Security | HTTPS, http->https redirect, mixed content |
+
+"Could not test" is never written as a problem, by the checks or by the verification gate. A render
+where a stylesheet or an own-site script failed to load is treated as "could not test" (the page would
+not look like what patients see). Speed and PageSpeed results are cached in `api_cache` for
+`api_cache_days` (default 7). A full run takes a few minutes per site; on Vercel run the worker with a
+long enough `maxDuration` (or from Supabase/a small VM) for site tests.
+
+### Review analysis
+Google's Maps Platform terms (checked 2026-11-11) allow storing only the **place_id**; they forbid
+saving business names, addresses or user reviews and creating content derived from them, and the
+Places API returns at most 5 reviews (no owner replies, no 90-day count). So:
+
+- **Clinics we contact:** rating and review count for the clinic and the clinics named in its test are
+  fetched **live** when the web report is opened, shown with "Google Maps" attribution, and never
+  stored or put in a PDF or email (`src/lib/reviews/liveTable.ts`). The gate blocks review numbers in
+  stored reports and emails. Only place_ids are stored (`clinics.place_id`, `competitor_places`).
+- **Monthly clients:** the clinic connects its **own** Google Business Profile with a link (no account
+  with us; portal > clinic > Reviews > "Create connect link"). From its reviews we compute total,
+  average, latest date, last-90-days count and owner-reply rate, and run text analysis by volume:
+  30+ full, 10 to 29 "small sample", under 10 none (the low count is the finding). Review text is
+  processed in memory only; only numbers and short theme labels are stored, never reviewer names or
+  health details (`review_snapshots`, `review_themes`).
+- **Competitor service words** come from the assistant's own answers (our data), matched to the
+  questions each clinic was named in. Counts only, no judgement.
+- **Review-request kit** (fix file when volume is low): message text and a printable card with a QR
+  code to the clinic's Google review link; it states: ask every patient, no incentive, no filtering by
+  satisfaction.
+
+### Answer pages (monthly plan)
+`propose_pages` proposes the pages a clinic is missing (one per patient question it was not
+recommended for or has no page on, one per service it mentions but has no page for) and drafts the
+first one. Drafts: the question as the title, a direct answer in two sentences, details, an hours and
+contact block (facts only when confirmed verbatim on the clinic's site), and FAQPage or MedicalWebPage
+structured data. Every clinical or pricing fact is a [BRACKETED PLACEHOLDER]; the language rules
+(no superlatives, promises, comparisons, prescription promotion) are enforced on every version.
+
+Workflow, every step recorded in `answer_page_events`:
+draft -> your review (portal > Pages) -> clinic approval by link (no account; they can fill the
+bracketed facts) -> you publish and enter the live URL -> **live**. A page cannot go live with
+placeholders left. `pages_per_month` (default 2) plans how many go out each month. Each monthly run
+records the latest result for the question a live page targets (`updateLivePageResults`).
+
+### Settings (portal > Settings)
+`pages_per_month` (2), `crawl_page_cap` (40), `api_cache_days` (7), and the daily spend cap, which now
+covers every paid API (Claude and Places), not only Claude.
 
 ## Design
 

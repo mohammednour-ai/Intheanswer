@@ -1,6 +1,6 @@
 import { db } from "../db";
 import type { JobContext } from "../jobs/queue";
-import { PermanentJobError } from "../jobs/queue";
+import { PermanentJobError, DeferJob } from "../jobs/queue";
 import { register } from "../jobs/handlers";
 import { matchClinic, type NamedClinic } from "./match";
 
@@ -39,8 +39,18 @@ export async function computeClinicResults(clinicId: string, testRunId: string) 
 }
 
 async function handleScore(ctx: JobContext) {
-  const { clinicId, auditId, testRunId, force } = ctx.job.payload as { clinicId: string; auditId: string; testRunId: string; force?: boolean };
+  const { clinicId, auditId, testRunId, force, runLabel } = ctx.job.payload as { clinicId: string; auditId: string; testRunId: string; force?: boolean; runLabel?: string };
   const sql = db();
+  // The site test feeds the teaser. Wait for it (finished or failed) for up to
+  // 30 minutes; after that the clinic continues without that section.
+  if (runLabel) {
+    const [st] = await sql<{ status: string | null; job_status: string | null; created: Date | null }[]>`
+      select (select status from site_test_runs where clinic_id=${clinicId} and run_label=${runLabel}) as status,
+             (select status::text from jobs where idempotency_key=${`sitetest:${clinicId}:${runLabel}`}) as job_status,
+             (select created_at from jobs where idempotency_key=${`sitetest:${clinicId}:${runLabel}`}) as created`;
+    const pending = !st.status && st.job_status && ["queued", "running"].includes(st.job_status);
+    if (pending && st.created && Date.now() - st.created.getTime() < 30 * 60e3) throw new DeferJob(60, "waiting for the site test");
+  }
   const results = await computeClinicResults(clinicId, testRunId);
   if (results.length === 0) throw new PermanentJobError("test run has no answers");
   const rec = results.filter((r) => r.status === "recommended").length;
@@ -59,6 +69,7 @@ async function handleScore(ctx: JobContext) {
     return { parked: q.reason, score: `${rec} of ${results.length}` };
   }
   await ctx.enqueue("build_teaser", `teaser:${score.id}`, { clinicId, scoreId: score.id });
+  if (runLabel) await ctx.enqueue("propose_pages", `pages:${clinicId}:${runLabel}`, { clinicId, runLabel, testRunId }, { maxAttempts: 2 });
   return { score: `${rec} of ${results.length}`, findings: f.n, next: "build_teaser" };
 }
 

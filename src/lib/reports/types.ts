@@ -13,7 +13,9 @@ export interface ReportRow {
 }
 
 export interface ReportFinding {
+  /** audit check key, or "site:<key>" for a site test check */
   checkKey: string;
+  source?: "audit" | "site";
   title: string;
   text: string;
   evidence: Evidence[];
@@ -47,8 +49,10 @@ export interface TeaserData {
   rows: ReportRow[];
   findings: ReportFinding[];
   pagesRead: number;
-  /** Confirmed gaps in the audit (the full report covers all of them). */
+  /** Confirmed gaps in the audit and site test (the full report covers all of them). */
   findingsTotal: number;
+  /** Site test run the site findings come from (for the verification gate). */
+  siteRunId?: string | null;
   offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string };
   limits: string;
   owner: OwnerFooter;

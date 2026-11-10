@@ -1,6 +1,7 @@
 import { documentShell, esc } from "./html";
 import { markSvg, copilotAvatarSvg, COPILOT_NAME } from "../brand";
 import type { TeaserData, RowStatus } from "./types";
+import { LIVE_REVIEWS_MARKER } from "../reviews/liveTable";
 
 /** Teaser layout follows the owner's design canvas ("Teaser report (free)"). */
 
@@ -81,6 +82,8 @@ ${reportHeader("AI Visibility Report · Preview")}
   <h2>Three things we found on your website</h2>
   <div class="findings">${findings}</div>
 </section>
+
+${LIVE_REVIEWS_MARKER}
 
 <section>
   <h2>Two ways to fix it</h2>

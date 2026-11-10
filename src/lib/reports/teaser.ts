@@ -2,6 +2,7 @@ import { db } from "../db";
 import { env, ownerDetails } from "../env";
 import { formatLongDate } from "../time";
 import { CHECK_LABELS } from "../pipeline/audit/types";
+import { SITE_CHECK_LABELS } from "../sitetest/types";
 import type { Evidence } from "../pipeline/audit/types";
 import type { NamedClinic } from "../pipeline/match";
 import { namesMatch } from "../pipeline/match";
@@ -20,24 +21,60 @@ export function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
-/** Pick the three most concrete confirmed findings, one per check family. */
-export function pickFindings(
-  checks: { check_key: string; result: string; is_gap: boolean; severity: number; finding_text: string | null; evidence: Evidence[] }[],
-  n = 3,
-): ReportFinding[] {
-  const family = (k: string) => (k.startsWith("hours") ? "hours" : k);
+type Candidate = { check_key: string; result: string; is_gap: boolean; severity: number; finding_text: string | null; evidence: Evidence[]; source?: "audit" | "site" };
+
+/**
+ * Pick the three most concrete confirmed findings, one per check family.
+ * At most `maxSite` may come from the site test (or reviews), and only when it
+ * is among the strongest. "could not verify" / "could not test" never qualify.
+ */
+export function pickFindings(checks: Candidate[], n = 3, maxSite = 1): ReportFinding[] {
+  const family = (k: string) => (k.startsWith("hours") ? "hours" : k.replace(/^site:/, "").replace(/^crawl_ai_bots$/, "ai_crawlers"));
   const eligible = checks
-    .filter((c) => c.is_gap && c.result !== "could_not_verify" && c.finding_text)
+    .filter((c) => c.is_gap && c.result !== "could_not_verify" && c.result !== "could_not_test" && c.finding_text)
     .sort((a, b) => b.severity - a.severity);
   const out: ReportFinding[] = [];
   const used = new Set<string>();
+  let site = 0;
   for (const c of eligible) {
-    if (used.has(family(c.check_key))) continue;
+    const isSite = c.source === "site";
+    if (used.has(family(c.check_key)) || (isSite && site >= maxSite)) continue;
     used.add(family(c.check_key));
-    out.push({ checkKey: c.check_key, title: CHECK_LABELS[c.check_key] ?? c.check_key, text: c.finding_text!, evidence: c.evidence });
+    if (isSite) site++;
+    const key = c.check_key.replace(/^site:/, "");
+    out.push({
+      checkKey: c.check_key,
+      source: isSite ? "site" : "audit",
+      title: (isSite ? SITE_CHECK_LABELS[key] : CHECK_LABELS[key]) ?? key,
+      text: c.finding_text!,
+      evidence: c.evidence,
+    });
     if (out.length === n) break;
   }
   return out;
+}
+
+/** Site test checks as finding candidates. Patient impact is scaled onto the audit's severity range. */
+export async function siteCandidates(clinicId: string): Promise<{ runId: string | null; pages: number; candidates: Candidate[] }> {
+  const sql = db();
+  const [run] = await sql<{ id: string; pages_crawled: number }[]>`
+    select id, pages_crawled from site_test_runs where clinic_id=${clinicId} and status='done' order by finished_at desc limit 1`;
+  if (!run) return { runId: null, pages: 0, candidates: [] };
+  const rows = await sql<{ check_key: string; result: string; impact: number; finding_text: string | null; evidence: Evidence[] }[]>`
+    select check_key, result::text, impact, finding_text, evidence from site_test_checks where run_id=${run.id}`;
+  return {
+    runId: run.id,
+    pages: run.pages_crawled,
+    candidates: rows.map((r) => ({
+      check_key: `site:${r.check_key}`,
+      result: r.result,
+      is_gap: r.result === "needs_work",
+      severity: Math.round(r.impact * 0.95),
+      finding_text: r.finding_text,
+      evidence: r.evidence,
+      source: "site" as const,
+    })),
+  };
 }
 
 export async function buildTeaserData(clinicId: string, scoreId: string, reportToken: string): Promise<TeaserData> {
@@ -90,17 +127,19 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     };
   });
 
-  const findings = pickFindings(checks);
+  const site = await siteCandidates(clinicId);
+  const findings = pickFindings([...checks.map((c) => ({ ...c, source: "audit" as const })), ...site.candidates]);
   findings.forEach((f, i) => claims.push({ id: `finding-${i}`, where: "finding", claim: f.text, evidence: f.evidence }));
 
-  const gaps = checks.filter((x) => x.is_gap && x.result !== "could_not_verify").length;
+  const pagesRead = Math.max(audit.pages_read.length, site.pages);
+  const gaps = checks.filter((x) => x.is_gap && x.result !== "could_not_verify").length + site.candidates.filter((x) => x.is_gap).length;
   const listedPart = s.listed_only ? `, and mentioned it without recommending it in ${s.listed_only}` : "";
   const summary: [string, string] = [
     `We asked ${run.assistant} ${plural(s.total, "question", "questions")} a patient in ${c.city} might ask when looking for a ${c.noun}. It recommended ${name} in ${s.recommended} of them${listedPart}.`,
-    `On the ${plural(audit.pages_read.length, "page", "pages")} we read on ${c.domain}, we found ${plural(gaps, "gap", "gaps")} in what the site states for patients and for the tools assistants use to read it. The three most concrete are below.`,
+    `On the ${plural(pagesRead, "page", "pages")} we read on ${c.domain}, we found ${plural(gaps, "gap", "gaps")} in what the site states for patients and for the tools assistants use to read it. The three most concrete are below.`,
   ];
   claims.push({ id: "summary-0", where: "summary", claim: summary[0], evidence: [{ kind: "answer_quote", label: `score ${s.recommended}/${s.total}, listed ${s.listed_only}` }] });
-  claims.push({ id: "summary-1", where: "summary", claim: summary[1], evidence: [{ kind: "pages_read", label: `${audit.pages_read.length} pages; ${gaps} confirmed gaps` }] });
+  claims.push({ id: "summary-1", where: "summary", claim: summary[1], evidence: [{ kind: "pages_read", label: `${pagesRead} pages (audit ${audit.pages_read.length}, site test ${site.pages}); ${gaps} confirmed gaps` }] });
 
   const servedModels = [...new Set(answers.map((a) => a.served_model ?? run.model))];
   const owner = ownerDetails();
@@ -114,10 +153,11 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     summary,
     rows,
     findings,
-    pagesRead: audit.pages_read.length,
+    pagesRead,
     offers: { oneTimeUrl: `${base}/buy/${reportToken}/report`, monthlyUrl: `${base}/buy/${reportToken}/monthly`, minTerm: owner.minTerm },
     limits: LIMITS_LINE(run.assistant, servedModels.join(", "), date, c.city, s.total),
     findingsTotal: gaps,
+    siteRunId: site.runId,
     owner: { name: owner.name, businessName: owner.businessName, mailingAddress: owner.mailingAddress, phone: owner.phone, email: owner.email },
     claims,
   };

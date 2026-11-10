@@ -6,7 +6,7 @@ import { env } from "../env";
  * HTML → PDF with headless Chromium. Locally uses CHROME_PATH (or the
  * pre-installed Chromium); on Vercel uses @sparticuz/chromium.
  */
-async function executablePath(): Promise<{ path: string; args: string[] }> {
+export async function executablePath(): Promise<{ path: string; args: string[] }> {
   const local: string[] = [];
   try {
     for (const d of fs.readdirSync("/opt/pw-browsers")) if (/^chromium-\d+$/.test(d)) local.push(`/opt/pw-browsers/${d}/chrome-linux64/chrome`);

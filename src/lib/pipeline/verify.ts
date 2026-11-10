@@ -68,9 +68,16 @@ async function pageText(url: string): Promise<string | null> {
 }
 
 async function quoteHolds(e: Evidence): Promise<boolean> {
-  if (e.kind !== "page_quote" || !e.quote || !e.url) return true; // other kinds are checked structurally
-  const t = await pageText(e.url);
-  return !!t && textContains(t, e.quote);
+  if (!e.quote || !e.url) return true; // labels without quotes are checked structurally
+  if (e.kind === "page_quote") {
+    const t = await pageText(e.url);
+    return !!t && textContains(t, e.quote);
+  }
+  if (e.kind === "raw_source") {
+    const [p] = await db()<{ body: string | null }[]>`select body from page_cache where url=${e.url}`;
+    return !p?.body || p.body.includes(e.quote) || textContains(p.body, e.quote); // not cached: nothing to contradict
+  }
+  return true;
 }
 
 const ModelVerdict = z.object({
@@ -150,7 +157,36 @@ export async function verifyTeaser(input: {
   const checks = await sql<{ check_key: string; result: string; is_gap: boolean; finding_text: string | null }[]>`
     select check_key, result::text, is_gap, finding_text from audit_checks where audit_id=${s.audit_id}`;
   const survivors = [];
+  const siteRows = data.siteRunId
+    ? await sql<{ check_key: string; result: string; finding_text: string | null }[]>`
+        select check_key, result::text, finding_text from site_test_checks where run_id=${data.siteRunId}`
+    : [];
   for (const f of data.findings) {
+    if (f.checkKey.startsWith("site:")) {
+      const key = f.checkKey.slice(5);
+      const row = siteRows.find((x) => x.check_key === key);
+      if (!row) {
+        removed.push({ what: f.title, why: "no stored site test result" });
+        continue;
+      }
+      if (row.result === "could_not_test") {
+        removed.push({ what: f.title, why: "site check could not be tested; it may never be stated as a problem" });
+        flags.push({ code: "unverified_as_fact", message: `${f.title}: could not be tested but was used as a finding`, severity: "block" });
+        continue;
+      }
+      if (row.result !== "needs_work" || row.finding_text !== f.text) {
+        removed.push({ what: f.title, why: "finding text does not match the stored site test result" });
+        continue;
+      }
+      let okSite = true;
+      for (const e of f.evidence) if (!(await quoteHolds(e))) okSite = false;
+      if (!okSite) {
+        removed.push({ what: f.title, why: "a quoted passage is no longer on the stored page" });
+        continue;
+      }
+      survivors.push(f);
+      continue;
+    }
     const c = checks.find((x) => x.check_key === f.checkKey);
     if (!c) {
       removed.push({ what: f.title, why: "no stored check" });
@@ -205,6 +241,9 @@ export async function verifyTeaser(input: {
   }
 
   // --- 5. three findings, language, identity -------------------------------------
+  if (data.findings.filter((f) => f.source === "site" || f.checkKey.startsWith("site:")).length > 1) {
+    flags.push({ code: "too_many_site_findings", message: "the teaser may use at most one finding from the site test", severity: "block" });
+  }
   if (data.findings.length < 3) {
     flags.push({ code: "fewer_than_three_findings", message: `only ${data.findings.length} finding(s) survived verification`, severity: "block" });
   }
@@ -213,6 +252,10 @@ export async function verifyTeaser(input: {
   // the email body is rebuilt from the surviving findings by the caller; scan what we have
   const emailMain = draft.bodyText.split("\n--\n")[0];
   flags.push(...scanLanguage(draft.subject + "\n" + emailMain, "email"));
+  const reviewNumber = /\b\d+(\.\d)?\s*(stars?|reviews?|ratings?)\b|\brated \d/i;
+  if (reviewNumber.test(draft.subject + "\n" + emailMain) || reviewNumber.test(teaserText)) {
+    flags.push({ code: "review_number_stored", message: "review numbers may only appear in the live web table (Google Maps terms), not in the stored report or email", severity: "block" });
+  }
   if (!/unsubscribe|stop all emails/i.test(draft.bodyText)) flags.push({ code: "no_unsubscribe", message: "email has no unsubscribe link", severity: "block" });
   if (OWNER_PLACEHOLDER_RE.test(draft.bodyText) || OWNER_PLACEHOLDER_RE.test(JSON.stringify(data.owner))) {
     flags.push({

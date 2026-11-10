@@ -50,6 +50,12 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
           <span className="pill">{typeLabel(m.type as string)}</span>
           <span className="pill">{String(m.status).replace("_", " ")}</span>
           <span className="muted">{[m.city, m.sector].filter(Boolean).join(" · ")}</span>
+          {m.clinic_id ? (
+            <>
+              <Link href={`/portal/clinic/${m.clinic_id}?tab=reviews`}>Reviews</Link>
+              <Link href={`/portal/clinic/${m.clinic_id}?tab=site`}>Site test</Link>
+            </>
+          ) : null}
           {m.website ? (
             <a href={m.website as string} rel="noreferrer" target="_blank">
               {m.domain as string}

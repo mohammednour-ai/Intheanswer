@@ -42,8 +42,13 @@ const schema = z.object({
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
   CLAUDE_EFFORT: z.enum(["low", "medium", "high", "xhigh", "max"]).default("medium"),
 
-  // Discovery
+  // Discovery and live review numbers (Places API: only place_id is ever stored)
   GOOGLE_PLACES_API_KEY: z.string().optional(),
+  // Site test speed. Without a key, a local Lighthouse lab run is used instead.
+  PAGESPEED_API_KEY: z.string().optional(),
+  // Google Business Profile (monthly clients connect their own profile)
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 
   // Payments
   STRIPE_SECRET_KEY: z.string().optional(),
