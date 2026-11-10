@@ -4,6 +4,7 @@ import { requireOwner } from "@/lib/auth";
 import { getSettings, effectiveDryRun } from "@/lib/settings";
 import { countWaiting } from "@/lib/portal/queries";
 import styles from "./portal.module.css";
+import { markSvg } from "@/lib/brand";
 
 export const metadata: Metadata = { title: "Portal", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -34,7 +35,10 @@ export default async function PortalLayout({ children }: { children: React.React
       {dry && <div className="banner banner-warn" role="status">Dry run. Nothing is sent and nothing is charged.</div>}
       <header className={styles.header}>
         <div className="wrap row" style={{ justifyContent: "space-between" }}>
-          <Link href="/portal" className={styles.brand}>In The Answer</Link>
+          <Link href="/portal" className={styles.brand}>
+            <span dangerouslySetInnerHTML={{ __html: markSvg({ width: 24 }) }} />
+            In The Answer
+          </Link>
           <span className="small muted">{owner.email}{owner.devBypass ? " (dev)" : ""}</span>
         </div>
         <nav className="wrap" aria-label="Portal">

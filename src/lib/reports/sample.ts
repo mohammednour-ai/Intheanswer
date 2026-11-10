@@ -57,10 +57,11 @@ export function sampleTeaser(): TeaserData {
       },
     ],
     pagesRead: 9,
+    findingsTotal: 6,
     offers: { oneTimeUrl: `${env().APP_URL}/pricing`, monthlyUrl: `${env().APP_URL}/pricing`, minTerm: o.minTerm },
     limits:
       "SAMPLE: every clinic named in this report is invented, and the answers are illustrative. " +
-      LIMITS_LINE("Claude", env().CLAUDE_MODEL, "the test date", "the clinic's city"),
+      LIMITS_LINE("Claude", env().CLAUDE_MODEL, "the test date", "the clinic's city", 6),
     owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email },
     claims: [],
   };

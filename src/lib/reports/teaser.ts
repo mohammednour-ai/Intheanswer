@@ -13,8 +13,8 @@ import type { Claim, ReportFinding, ReportRow, TeaserData } from "./types";
  * verification gate re-checks.
  */
 
-export const LIMITS_LINE = (assistant: string, model: string, date: string, city: string) =>
-  `This report records what ${assistant} (model ${model}, web search on) answered on ${date} when asked these questions through its API, located in ${city}, Ontario, and what we could read on the clinic's public website that day. Answers vary with wording, time, account and app. It is a snapshot, not a ranking, and no one can guarantee what an assistant will say.`;
+export const LIMITS_LINE = (assistant: string, model: string, date: string, city: string, questions: number) =>
+  `This report reflects one assistant (${assistant}, model ${model}, web search on), ${questions} questions, on one day (${date}), asked through its API from ${city}, Ontario, and what we could read on the clinic's public website that day. Assistants change what they recommend, and results can differ between assistants and apps. No one can guarantee that a clinic will be named.`;
 
 export function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
@@ -109,7 +109,8 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     findings,
     pagesRead: audit.pages_read.length,
     offers: { oneTimeUrl: `${base}/buy/${reportToken}/report`, monthlyUrl: `${base}/buy/${reportToken}/monthly`, minTerm: owner.minTerm },
-    limits: LIMITS_LINE(run.assistant, servedModels.join(", "), date, c.city),
+    limits: LIMITS_LINE(run.assistant, servedModels.join(", "), date, c.city, s.total),
+    findingsTotal: gaps,
     owner: { name: owner.name, businessName: owner.businessName, mailingAddress: owner.mailingAddress, phone: owner.phone, email: owner.email },
     claims,
   };

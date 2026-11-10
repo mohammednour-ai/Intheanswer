@@ -44,6 +44,13 @@ plain Postgres. Never apply it to a Supabase project.
   any complaint, DNS gate), per-type REVIEW/AUTO modes with "first N still reviewed", owner actions.
 - `src/app/portal`: owner portal (mobile first). Queue, Held, Sent, Replies, Overview, Settings.
 
+## Design
+
+Report and brand designs live on the owner's design canvas ("In The Answer — Report Designs (Teaser +
+Full)"). `src/lib/brand.ts` holds its palette and the three-bar mark; `src/lib/reports/renderTeaser.ts`
+follows the teaser artboard. Report wording is always generated from stored evidence, never copied from
+the mock-up.
+
 ## Only the owner can sign in
 
 1. Supabase > Authentication > Providers > Email: enable; **disable "Allow new users to sign up"**.

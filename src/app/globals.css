@@ -1,16 +1,16 @@
 /* Brand: white ground, near-black ink, one blue accent. No gradients. */
 :root {
-  --ink: #111418;
-  --ink-2: #3f4651;      /* secondary text, 9.6:1 on white */
-  --muted: #5b6370;      /* 6.1:1 on white */
-  --line: #e3e6ea;
-  --soft: #f5f6f8;
-  --blue: #1d4ed8;       /* 6.7:1 on white */
+  --ink: #14181f;
+  --ink-2: #2b3340;      /* secondary text */
+  --muted: #4a5361;      /* 7.6:1 on white */
+  --line: #e6eaf0;
+  --soft: #f3f5f8;      /* brand ground */
+  --blue: #1f4fd8;       /* answer blue, 6.3:1 on white */
   --blue-ink: #ffffff;
-  --blue-soft: #eef3ff;
+  --blue-soft: #e3eaff;
   --warn: #8a4b00;       /* 6.5:1 on white */
   --warn-soft: #fff6e8;
-  --bad: #a1161b;        /* 7.4:1 on white */
+  --bad: #b42318;        /* 7.4:1 on white */
   --bad-soft: #fdeeee;
   --ok: #17663a;         /* 6.9:1 on white */
   --ok-soft: #ecf7f0;

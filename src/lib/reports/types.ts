@@ -47,6 +47,8 @@ export interface TeaserData {
   rows: ReportRow[];
   findings: ReportFinding[];
   pagesRead: number;
+  /** Confirmed gaps in the audit (the full report covers all of them). */
+  findingsTotal: number;
   offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string };
   limits: string;
   owner: OwnerFooter;
