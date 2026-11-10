@@ -43,6 +43,19 @@ function coveredBy(site: PageSiteFacts, re: RegExp): string | null {
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
+/** Page names for service words that are not nouns on their own. */
+const SERVICE_NAMES: Record<string, string> = {
+  pediatric: "Care for children",
+  children: "Care for children",
+  kids: "Care for children",
+  "women's health": "Women's health care",
+  "laser hair removal": "Laser hair removal",
+  ecg: "ECG testing",
+  "blood work": "Blood work",
+  ipl: "IPL treatment",
+  prp: "PRP treatment",
+};
+
 export function proposePages(input: ProposalInput, max = 10): Proposal[] {
   const out: Proposal[] = [];
   const v = { clinic: input.clinic, city: input.city };
@@ -79,12 +92,12 @@ export function proposePages(input: ProposalInput, max = 10): Proposal[] {
     if (generic.has(s) || !allText.includes(s)) continue;
     if (coveredBy(input.site, new RegExp(s.replace(/[-\s]+/g, "[- ]?"), "i"))) continue;
     const comp = weights.get(s) ?? 0;
-    const service = cap(s);
+    const service = SERVICE_NAMES[s] ?? cap(s);
     const title = fill("{service} at {clinic} in {city}: what to expect", { ...v, service });
     out.push({
       kind: "service", intent: "service", targetQuestion: `Where can I get ${s} in ${input.city}?`, questionIndex: null, service,
       title, slug: slugify(title), priority: 30 + Math.min(20, comp * 5) + (PRESCRIPTION_RE.test(s) ? -10 : 0),
-      reason: `The site mentions ${s} but has no page about it${comp ? `; the assistant mentioned ${s} ${comp} time(s) when naming other clinics` : ""}.`,
+      reason: `The site mentions ${s === service.toLowerCase() ? s : `${s} (${service.toLowerCase()})`} but has no page about it${comp ? `; the assistant mentioned ${s} ${comp} time(s) when naming other clinics` : ""}.`,
       evidence: [{ kind: "pages_read", label: `"${s}" appears in the site text; no page URL, title or heading is about it` }],
     });
   }

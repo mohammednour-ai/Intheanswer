@@ -99,7 +99,7 @@ export async function buildFullReportData(clinicId: string): Promise<FullReportD
   const themes = snap ? await sql<{ kind: string; theme: string; mentions: number }[]>`select kind, theme, mentions from review_themes where snapshot_id=${snap.id} order by mentions desc` : [];
 
   const pages = await sql<{ title: string; kind: string; status: string; planned_month: string | null; reason: string; target_question: string }[]>`
-    select title, kind, status::text, planned_month, reason, target_question from answer_pages where clinic_id=${clinicId} and status <> 'rejected' order by priority desc`;
+    select title, kind, status::text, planned_month, reason, target_question from answer_pages where clinic_id=${clinicId} and status <> 'rejected' order by planned_month nulls last, priority desc`;
   const [first] = await sql<{ content: PageDraft }[]>`
     select v.content from answer_pages p join answer_page_versions v on v.page_id=p.id
     where p.clinic_id=${clinicId} order by p.priority desc, v.version desc limit 1`;

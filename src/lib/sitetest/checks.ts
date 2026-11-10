@@ -82,7 +82,7 @@ export function checkBrokenLinks(c: Crawl, external: Probe[]): SiteCheck {
     return {
       key, category: "links", result: "needs_work", impact: IMPACT[key],
       line: `${plural(broken.length, "link")} returned "not found" out of ${tested.length} tested.`,
-      findingText: `${plural(broken.length, "link")} on your site lead to a "page not found" error, for example ${broken[0].url} (linked from ${broken[0].foundOn}).`,
+      findingText: `${plural(broken.length, "link")} on your site ${broken.length === 1 ? "leads" : "lead"} to a "page not found" error, for example ${broken[0].url} (linked from ${broken[0].foundOn}).`,
       evidence: broken.slice(0, 10).map((b) => ({ kind: "raw_source" as const, url: b.foundOn, label: `link to ${b.url} returned HTTP ${b.status}` })),
       metrics: { tested: tested.length, broken: broken.length, untested },
     };
@@ -103,7 +103,7 @@ export function checkBrokenImages(probes: Probe[]): SiteCheck {
     return {
       key, category: "links", result: "needs_work", impact: IMPACT[key],
       line: `${plural(broken.length, "image")} did not load (not found) out of ${tested.length} tested.`,
-      findingText: `${plural(broken.length, "image")} on your site do not load, for example ${broken[0].url} on ${broken[0].foundOn}.`,
+      findingText: `${plural(broken.length, "image")} on your site ${broken.length === 1 ? "does" : "do"} not load, for example ${broken[0].url} on ${broken[0].foundOn}.`,
       evidence: broken.slice(0, 10).map((b) => ({ kind: "raw_source" as const, url: b.foundOn, label: `image ${b.url} returned HTTP ${b.status}` })),
       metrics: { tested: tested.length, broken: broken.length },
     };
