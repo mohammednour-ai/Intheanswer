@@ -36,8 +36,18 @@ export async function clinicFacts(clinicId: string): Promise<ClinicFacts> {
 
 export async function sitePagesFromCache(domain: string) {
   const rows = await db()<{ url: string; body: string }[]>`
-    select url, body from page_cache where domain=${domain} and http_status=200 and body is not null limit 60`;
-  return rows.map((r) => {
+    select url, body from page_cache
+    where domain=${domain} and http_status=200 and body is not null and url like 'https://%'
+      and coalesce(content_type, 'text/html') ilike '%html%' and url not like '%/robots.txt'
+    order by fetched_at desc limit 80`;
+  const seen = new Set<string>();
+  const unique = rows.filter((r) => {
+    const k = r.url.replace(/^https:\/\/(www\.)?/, "").replace(/\/+$/, "");
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  return unique.map((r) => {
     const p = parsePage(r.url, r.body);
     return { url: p.url, title: p.title, h1: p.h1, text: p.text };
   });
