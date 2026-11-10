@@ -70,6 +70,7 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
     `${d.owner.businessName}`,
     `${d.owner.mailingAddress} · ${d.owner.phone}`,
     `intheanswer.ca`,
+    `Report prepared with In The Answer Copilot (AI)`,
     ``,
     `--`,
     `You are receiving this because ${opts.toEmail} is published on ${opts.sourceUrl}. To stop all emails from me, use this link (no login needed): ${unsubscribeUrl(opts.toEmail)}`,

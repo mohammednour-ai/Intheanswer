@@ -28,3 +28,28 @@ export function markSvg(opts: { width?: number; variant?: "light" | "dark"; labe
   const a11y = opts.label ? `role="img" aria-label="${opts.label}"` : 'aria-hidden="true"';
   return `<svg width="${w}" height="${h}" viewBox="0 0 120 104" ${a11y}><rect x="8" y="8" width="84" height="20" rx="10" fill="${grey}"/><rect x="8" y="42" width="104" height="20" rx="10" fill="${blue}"/><rect x="8" y="76" width="64" height="20" rx="10" fill="${grey}"/></svg>`;
 }
+
+export const COPILOT_NAME = "In The Answer Copilot";
+
+/**
+ * Copilot avatar (design canvas: "Copilot avatar and branding"): the answer mark
+ * on an ink circle; the blue presence dot marks it as the AI assistant. Always
+ * presented as AI, never as a person.
+ */
+export function copilotAvatarSvg(opts: { size?: number; variant?: "dark" | "light"; dot?: boolean; label?: string; ring?: string } = {}): string {
+  const s = opts.size ?? 32;
+  const light = opts.variant === "light";
+  const bg = light ? BRAND.ground : BRAND.ink;
+  const grey = light ? BRAND.listGrey : BRAND.darkGrey;
+  const blue = light ? BRAND.blue : BRAND.blueOnDark;
+  const dot = opts.dot ?? s >= 32;
+  const a11y = opts.label ? `role="img" aria-label="${opts.label}"` : 'aria-hidden="true"';
+  const bars =
+    s < 28
+      ? `<rect x="40" y="56" width="90" height="26" rx="13" fill="${grey}"/><rect x="40" y="88" width="120" height="26" rx="13" fill="${blue}"/><rect x="40" y="120" width="66" height="26" rx="13" fill="${grey}"/>`
+      : `<rect x="46" y="62" width="84" height="20" rx="10" fill="${grey}"/><rect x="46" y="92" width="108" height="20" rx="10" fill="${blue}"/><rect x="46" y="122" width="62" height="20" rx="10" fill="${grey}"/>`;
+  const presence = dot
+    ? `<circle cx="164" cy="40" r="20" fill="${light ? BRAND.blueOnDark : BRAND.blue}" stroke="${opts.ring ?? (light ? BRAND.ink : "#FFFFFF")}" stroke-width="8"/>`
+    : "";
+  return `<svg width="${s}" height="${s}" viewBox="0 0 200 200" ${a11y}><circle cx="100" cy="100" r="96" fill="${bg}"/>${bars}${presence}</svg>`;
+}

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getMessage } from "@/lib/portal/queries";
 import { typeLabel } from "../../MessageList";
 import styles from "../../portal.module.css";
+import { copilotAvatarSvg, COPILOT_NAME } from "@/lib/brand";
 import {
   approveAction,
   editAndSendAction,
@@ -58,9 +59,12 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
       </header>
 
       <section className="card" aria-labelledby="flags-h">
-        <h2 id="flags-h" style={{ fontSize: "1.1rem" }}>
-          Verification gate
-        </h2>
+        <div className="row" style={{ alignItems: "center", marginBottom: 8 }}>
+          <span dangerouslySetInnerHTML={{ __html: copilotAvatarSvg({ size: 32, label: `${COPILOT_NAME} (AI)` }) }} />
+          <h2 id="flags-h" style={{ fontSize: "1.1rem", margin: 0 }}>
+            Verification gate <span className="small muted">· {COPILOT_NAME}</span>
+          </h2>
+        </div>
         {flags.length === 0 ? (
           <p className="pill pill-ok">No flags. Every claim matched stored evidence.</p>
         ) : (

@@ -1,5 +1,5 @@
 import { documentShell, esc } from "./html";
-import { markSvg } from "../brand";
+import { markSvg, copilotAvatarSvg, COPILOT_NAME } from "../brand";
 import type { TeaserData, RowStatus } from "./types";
 
 /** Teaser layout follows the owner's design canvas ("Teaser report (free)"). */
@@ -16,6 +16,11 @@ export function headline(d: TeaserData): string {
   if (r > 0) return `Recommended in ${r} of ${t} answers.`;
   if (l > 0) return `Named in ${l} of ${t} answers, recommended in none.`;
   return `Not named in any of the ${t} answers.`;
+}
+
+/** Copilot byline, as on the design canvas: always says it is an AI system. */
+export function copilotByline(ownerName: string): string {
+  return `<div class="byline">${copilotAvatarSvg({ size: 28, dot: false })}<div>Prepared by <strong>${COPILOT_NAME}</strong>, an AI system, for ${esc(ownerName)}, In The Answer. Every claim checked against stored evidence.</div></div>`;
 }
 
 export function reportHeader(docLabel: string): string {
@@ -102,6 +107,7 @@ ${reportHeader("AI Visibility Report · Preview")}
 </section>
 
 <footer class="foot">
+  ${copilotByline(d.owner.name)}
   <div>${esc(d.limits)}</div>
   <div>In The Answer · intheanswer.ca · ${esc(d.owner.name)} · ${esc(d.owner.businessName)} · ${esc(d.owner.mailingAddress)} · ${esc(d.owner.phone)} · ${esc(d.owner.email)}</div>
 </footer>
