@@ -2,6 +2,7 @@ import { db } from "../db";
 import { enqueue } from "../jobs/queue";
 import { sha256 } from "../tokens";
 import { addSuppression } from "./suppression";
+import { scanLanguage } from "../pipeline/verify";
 
 /**
  * Owner actions on queued messages. Every action is written to approval_log
@@ -74,6 +75,10 @@ export async function editAndApprove(id: string, actor: Actor, subject: string, 
   subject = subject.trim();
   bodyText = bodyText.replace(/\r\n/g, "\n").trim();
   if (!subject || !bodyText) throw new Error("subject and body are required");
+  // An edit must still pass the language rules and keep the unsubscribe link.
+  const problems = scanLanguage(subject + "\n" + bodyText.split("\n--\n")[0], "edited email").map((f) => f.message);
+  if (!/\/unsubscribe\//.test(bodyText)) problems.push("edited email: the unsubscribe link was removed");
+  if (problems.length) throw new Error(`edit not saved: ${problems.join("; ")}`);
   const sql = db();
   await sql`update messages set subject=${subject}, body_text=${bodyText}, body_html=null,
             content_hash=${sha256(subject + "\n" + bodyText)}, updated_at=now() where id=${id}`;

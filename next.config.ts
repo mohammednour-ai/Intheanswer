@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   // classic dynamic model is simpler here than Cache Components.
   cacheComponents: false,
   // Chromium for PDF rendering ships as a server-only external package.
-  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core"],
+  serverExternalPackages: ["@sparticuz/chromium", "puppeteer-core", "lighthouse", "chrome-launcher", "axe-core"],
   poweredByHeader: false,
 };
 

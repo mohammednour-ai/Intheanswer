@@ -67,6 +67,15 @@ describe("drafts", () => {
     expect(wf.draftLanguageFlags({ ...d, details: ["We are the best clinic in Barrie."] })[0]).toMatch(/superlative/);
     expect(wf.draftLanguageFlags({ ...d, details: ["Faster than other clinics."] }).join(" ")).toMatch(/comparison/);
   });
+  it("quotes and backslashes in clinic values cannot break or extend the structured data", () => {
+    for (const v of ['Call "the front desk"', 'a", "injected": "yes', "back\\slash"]) {
+      const f = applyValues(d, { [d.placeholders[1]]: v });
+      expect(Object.keys(f.jsonLd).sort()).toEqual(Object.keys(d.jsonLd).sort());
+      expect(JSON.stringify(f.jsonLd)).not.toContain('"injected":');
+    }
+    // keys that are not this draft's placeholders are ignored
+    expect(applyValues(d, { "Maple Grove Dental": "Other Clinic" }).title).toBe(d.title);
+  });
   it("clinic-entered values are escaped in the page HTML", () => {
     const f = applyValues(d, { "[HOW TO REGISTER: call, book online or visit]": "<script>alert(1)</script>" });
     expect(f.html).not.toContain("<script>alert");

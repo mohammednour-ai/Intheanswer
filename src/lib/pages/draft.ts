@@ -86,8 +86,15 @@ export function buildDraft(page: { kind: "question" | "service"; intent: string;
 
 /** Fill placeholders with values the clinic provided on the approval page. */
 export function applyValues(d: PageDraft, values: Record<string, string>): PageDraft {
-  const sub = (s: string) => Object.entries(values).reduce((acc, [k, v]) => (v.trim() ? acc.replaceAll(k, v.trim()) : acc), s);
-  const jsonLd = JSON.parse(sub(JSON.stringify(d.jsonLd)));
+  // Only the draft's own placeholders may be filled; values are plain text.
+  const allowed = Object.entries(values).filter(([k, v]) => d.placeholders.includes(k) && v.trim());
+  const sub = (s: string) => allowed.reduce((acc, [k, v]) => acc.replaceAll(k, v.trim()), s);
+  // Structured data is substituted value by value, never through its JSON text,
+  // so a quote or backslash in a value cannot break or extend it.
+  const deep = (x: unknown): unknown =>
+    typeof x === "string" ? sub(x) : Array.isArray(x) ? x.map(deep) : x && typeof x === "object"
+      ? Object.fromEntries(Object.entries(x as Record<string, unknown>).map(([k, v]) => [k, deep(v)])) : x;
+  const jsonLd = deep(d.jsonLd) as Record<string, unknown>;
   const out: PageDraft = {
     ...d,
     title: sub(d.title),
