@@ -52,7 +52,10 @@ describe("content checks", () => {
     const b = page("https://x.example/b", HOME("<h1>B</h1><h2>ok</h2>", "<title>Same</title>"), 1);
     expect(C.checkTitlesDescriptions([a, b])).toMatchObject({ result: "needs_work", metrics: { noDesc: 2, duplicateTitles: 1 } });
     expect(C.checkAltText([a, b])).toMatchObject({ result: "needs_work", metrics: { images: 2, missing: 1 } });
-    expect(C.checkHeadingOrder([a, b])).toMatchObject({ result: "needs_work", metrics: { withIssues: 1 } });
+    // a skipped level alone is counted but not reported; a missing main heading is
+    expect(C.checkHeadingOrder([a, b])).toMatchObject({ result: "pass", metrics: { withIssues: 0, withSkippedLevels: 1 } });
+    const noH1 = page("https://x.example/c", HOME("<h2>Only a sub heading</h2>"), 1);
+    expect(C.checkHeadingOrder([a, noH1])).toMatchObject({ result: "needs_work", metrics: { withIssues: 1 } });
     expect(C.headingProblems([1, 2, 3, 2])).toEqual([]);
     expect(C.headingProblems([2, 3])).toEqual(["no main heading (h1)"]);
   });

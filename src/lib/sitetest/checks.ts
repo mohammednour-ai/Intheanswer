@@ -171,17 +171,24 @@ export function headingProblems(levels: number[]): string[] {
   return out;
 }
 
+/**
+ * Only a missing or repeated main heading is reported. Skipped levels (h2 to
+ * h4) are very common in site themes and matter little to patients, so they
+ * are counted in the metrics but do not make the check "needs work".
+ */
 export function checkHeadingOrder(pages: CrawledPage[]): SiteCheck {
   const key = "heading_order";
   if (!pages.length) return cnt(key, "accessibility", "No pages could be read.");
-  const bad = pages.map((p) => ({ p, issues: headingProblems(p.headings.map((h) => h.level)) })).filter((x) => x.issues.length);
-  if (!bad.length) return { key, category: "accessibility", result: "pass", impact: IMPACT[key], line: `Headings are in order on all ${pages.length} pages read.`, evidence: [] };
+  const all = pages.map((p) => ({ p, issues: headingProblems(p.headings.map((h) => h.level)) }));
+  const bad = all.map((x) => ({ p: x.p, issues: x.issues.filter((i) => /main heading/.test(i)) })).filter((x) => x.issues.length);
+  const metrics = { pages: pages.length, withIssues: bad.length, withSkippedLevels: all.filter((x) => x.issues.some((i) => /jumps/.test(i))).length };
+  if (!bad.length) return { key, category: "accessibility", result: "pass", impact: IMPACT[key], line: `Each of the ${pages.length} pages read has one main heading.`, evidence: [], metrics };
   return {
     key, category: "accessibility", result: "needs_work", impact: IMPACT[key],
-    line: `${bad.length} of ${pages.length} pages have heading order problems.`,
-    findingText: `${bad.length} of the ${pages.length} pages we read have headings out of order (for example ${bad[0].issues[0]} on ${bad[0].p.url}).`,
+    line: `${bad.length} of ${pages.length} pages have no main heading or more than one.`,
+    findingText: `${bad.length} of the ${pages.length} pages we read have no main heading or more than one (for example ${bad[0].issues[0]} on ${bad[0].p.url}).`,
     evidence: bad.slice(0, 8).map((b) => ({ kind: "raw_source" as const, url: b.p.url, label: b.issues.join("; ") })),
-    metrics: { pages: pages.length, withIssues: bad.length },
+    metrics,
   };
 }
 

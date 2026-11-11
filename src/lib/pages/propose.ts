@@ -75,7 +75,7 @@ export function proposePages(input: ProposalInput, max = 10): Proposal[] {
     }
     if (!covered) {
       priority += 20;
-      why.push(`none of the ${input.site.pages.length} pages read has a page on this topic`);
+      why.push(`none of the ${input.site.pages.length} pages read is about this topic by its address, title or main heading (the topic may still be mentioned inside another page)`);
       evidence.push({ kind: "pages_read", label: `${input.site.pages.length} pages checked for: ${t.covered.source}` });
     } else {
       evidence.push({ kind: "page", url: covered, label: "existing page on this topic (the new page would answer the question directly)" });

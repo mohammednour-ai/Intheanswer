@@ -176,6 +176,7 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
           <h2 id="act-h" style={{ fontSize: "1.1rem" }}>
             Actions
           </h2>
+          <p className="small muted">Sending is not built yet (phase 4). Approving records your decision and holds the item; nothing is sent.</p>
           <div className="row">
             <form action={approveAction.bind(null, id)}>
               <button className="btn btn-primary">Approve and send</button>
@@ -204,7 +205,7 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
                 <textarea id="body" name="body" defaultValue={m.body_text as string} rows={16} required />
               </div>
               <p className="small muted">
-                Your edits are saved and logged. Sending rules (caps, suppression, hours) still apply.
+                Your edits must keep the unsubscribe link and pass the wording rules. Your edits are saved and logged. Sending rules (caps, suppression, hours) still apply.
               </p>
               <button className="btn btn-primary">Save edit and send</button>
             </form>

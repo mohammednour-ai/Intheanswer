@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { constantTimeEqual } from "@/lib/tokens";
-import { runWorkerOnce } from "@/lib/jobs/worker";
+import { runWorkerBudget } from "@/lib/jobs/worker";
 import "@/lib/jobs/register";
 
 export const runtime = "nodejs";
@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
   if (!secret || !constantTimeEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
-  const res = await runWorkerOnce({ limit: 8 });
+  // one job at a time, inside the function's time limit (maxDuration below)
+  const res = await runWorkerBudget(270_000);
   return NextResponse.json(res);
 }

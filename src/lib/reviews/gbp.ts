@@ -55,6 +55,17 @@ async function gget<T>(url: string, access: string): Promise<T> {
 }
 
 /** OAuth callback: store the refresh token (encrypted) and pick the location whose website matches the clinic. */
+/** A location is the clinic's only when its website is on the clinic's own domain. */
+export function locationMatchesDomain(websiteUri: string | undefined, domain: string | null): boolean {
+  if (!websiteUri || !domain) return false;
+  try {
+    const h = new URL(websiteUri).hostname.toLowerCase().replace(/^www\./, "");
+    return h === domain || h.endsWith("." + domain);
+  } catch {
+    return false;
+  }
+}
+
 export async function completeConnection(connectToken: string, code: string): Promise<{ clinicId: string; location: string | null }> {
   const sql = db();
   const [conn] = await sql<{ clinic_id: string; domain: string | null }[]>`
@@ -69,14 +80,14 @@ export async function completeConnection(connectToken: string, code: string): Pr
       `https://mybusinessbusinessinformation.googleapis.com/v1/${a.name}/locations?readMask=name,title,websiteUri&pageSize=100`,
       t.access_token,
     );
-    const match = (locs.locations ?? []).find((l) => conn.domain && l.websiteUri?.includes(conn.domain)) ?? (locs.locations ?? [])[0];
+    const match = (locs.locations ?? []).find((l) => locationMatchesDomain(l.websiteUri, conn.domain));
     if (match) {
       location = `${a.name}/${match.name}`; // accounts/{a}/locations/{l}
       break;
     }
   }
   await sql`update gbp_connections set refresh_token_enc=${seal(t.refresh_token)}, location_name=${location},
-            status=${location ? "connected" : "error"}, connected_at=now(), last_error=${location ? null : "no location found"}
+            status=${location ? "connected" : "error"}, connected_at=now(), last_error=${location ? null : "no location on this Google account lists the clinic's website"}
             where connect_token=${connectToken}`;
   return { clinicId: conn.clinic_id, location };
 }

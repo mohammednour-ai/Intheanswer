@@ -68,11 +68,49 @@ export function findContacts(site: SiteRead): ContactResult {
   return { doNotContact, candidates, primary: candidates[0] ?? null };
 }
 
+/** Name as the clinic writes it: the page title before any separator, else the main heading. */
+export function ownSiteName(title: string, h1: string[]): string | null {
+  const parts = title.split(/\s+[|\u2013\u2014:-]\s+/).map((x) => x.trim()).filter(Boolean);
+  const pick = parts.find((x) => !/^(home|welcome|homepage)$/i.test(x)) ?? h1[0] ?? "";
+  const name = pick.replace(/\s+/g, " ").trim();
+  return name.length >= 3 && name.length <= 80 ? name : null;
+}
+
+/**
+ * Self-serve: the clinic asked for its own report. The address it typed is
+ * used only when it is on the site's own domain or published on the site;
+ * otherwise the request is held for the owner (so the form cannot be used to
+ * send a report about one business to someone else).
+ */
+async function selfServeContact(ctx: JobContext, clinic: { id: string; sector_id: number; city_id: number }, site: Awaited<ReturnType<typeof readSite>>, r: ContactResult) {
+  const sql = db();
+  const [req] = await sql<{ email: string }[]>`select email from self_serve_requests where clinic_id=${clinic.id} order by created_at desc limit 1`;
+  if (!req) throw new PermanentJobError("self-serve request not found");
+  const email = req.email.toLowerCase();
+  const verified = emailOnDomain(email, site.domain) || r.candidates.some((c) => c.email === email);
+  if (!verified) {
+    const reason = `self-serve: ${email} is not on ${site.domain} and is not published on the site`;
+    await sql`update clinics set status='held', status_reason=${reason}, updated_at=now() where id=${clinic.id}`;
+    await sql`update self_serve_requests set status='held', reason=${reason} where clinic_id=${clinic.id}`;
+    return { held: reason };
+  }
+  await sql`insert into contacts (clinic_id, email, source_url, source_snippet, on_own_domain, is_primary)
+            values (${clinic.id}, ${email}, ${"requested by the clinic on intheanswer.ca"}, 'self-serve request', ${emailOnDomain(email, site.domain)}, true)
+            on conflict (clinic_id, email) do update set is_primary=true`;
+  await sql`update clinics set status='contact_found', status_reason=null, updated_at=now() where id=${clinic.id}`;
+  await sql`update self_serve_requests set status='running' where clinic_id=${clinic.id}`;
+  const label = currentRunLabel();
+  await ctx.enqueue("test_city", `test:${clinic.sector_id}:${clinic.city_id}:${label}`, { sectorId: clinic.sector_id, cityId: clinic.city_id, runLabel: label });
+  await ctx.enqueue("audit_clinic", `audit:${clinic.id}:${label}`, { clinicId: clinic.id, runLabel: label });
+  await ctx.enqueue("site_test", `sitetest:${clinic.id}:${label}`, { clinicId: clinic.id, runLabel: label }, { maxAttempts: 2 });
+  return { contact: email, selfServe: true };
+}
+
 async function handleFindContact(ctx: JobContext) {
   const { clinicId } = ctx.job.payload as { clinicId: string };
   const sql = db();
-  const [clinic] = await sql<{ id: string; website: string | null; sector_id: number; city_id: number; status: string }[]>`
-    select id, website, sector_id, city_id, status::text from clinics where id = ${clinicId}`;
+  const [clinic] = await sql<{ id: string; website: string | null; sector_id: number; city_id: number; status: string; source: string }[]>`
+    select id, website, sector_id, city_id, status::text, source from clinics where id = ${clinicId}`;
   if (!clinic) throw new PermanentJobError("clinic not found");
   if (!clinic.website) {
     await sql`update clinics set status='excluded', status_reason='no website of its own', updated_at=now() where id=${clinicId}`;
@@ -85,7 +123,13 @@ async function handleFindContact(ctx: JobContext) {
               updated_at=now() where id=${clinicId}`;
     return { skipped: "site unreadable" };
   }
+  // The clinic's name comes from its own site (never from Places).
+  if (clinic.source === "places") {
+    const own = ownSiteName(site.home.title, site.home.h1);
+    if (own) await sql`update clinics set name=${own}, updated_at=now() where id=${clinicId}`;
+  }
   const r = findContacts(site);
+  if (clinic.source === "self_serve") return selfServeContact(ctx, clinic, site, r);
   if (r.doNotContact) {
     await sql`update clinics set status='do_not_contact', status_reason=${`no-solicitation notice at ${r.doNotContact.url}: "${r.doNotContact.quote}"`},
               updated_at=now() where id=${clinicId}`;

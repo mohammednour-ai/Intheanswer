@@ -83,12 +83,11 @@ async function handleDiscover(ctx: JobContext) {
       summary.reasons[d.reason] = (summary.reasons[d.reason] ?? 0) + 1;
       continue;
     }
-    // Only place_id (and the website we will verify by reading it) is kept. The
-    // business name from Places is used as a working label until the contact
-    // step replaces it with the name the clinic writes on its own site.
+    // Only place_id and the website address are kept. The clinic is labelled by
+    // its domain until the contact step reads the name from its own site.
     const rows = await sql<{ id: string; inserted: boolean }[]>`
       insert into clinics (place_id, name, city_id, sector_id, website, domain, source)
-      values (${p.id}, ${p.displayName?.text ?? "(unnamed)"}, ${cityId}, ${sectorId},
+      values (${p.id}, ${d.domain ?? "(unnamed)"}, ${cityId}, ${sectorId},
               ${p.websiteUri ?? null}, ${d.domain ?? null}, 'places')
       on conflict (place_id) do update set updated_at = now()
       returning id, (xmax = 0) as inserted`;

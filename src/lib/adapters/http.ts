@@ -18,6 +18,36 @@ const CACHE_DAYS = 7;
 const MAX_BYTES = 3_000_000;
 const TIMEOUT_MS = 20_000;
 
+/** Hosts that must never be requested: loopback, private, link-local, internal names. */
+export function isPrivateHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal") || !h.includes(".") && !h.includes(":")) return true;
+  const m = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  if (h.includes(":")) return h === "::1" || h === "::" || /^f[cd]/.test(h) || /^fe[89ab]/.test(h) || h.startsWith("::ffff:");
+  return false;
+}
+
+export class BlockedUrlError extends Error {}
+
+/** Only public http(s) addresses may be fetched; names are also resolved and checked. */
+export async function assertPublicUrl(url: string): Promise<void> {
+  const u = new URL(url);
+  if (u.protocol !== "http:" && u.protocol !== "https:") throw new BlockedUrlError("not an http(s) address");
+  if (isPrivateHost(u.hostname)) throw new BlockedUrlError("address is not public");
+  try {
+    const { lookup } = await import("node:dns/promises");
+    const addrs = await lookup(u.hostname, { all: true });
+    if (addrs.some((a) => isPrivateHost(a.address))) throw new BlockedUrlError("address resolves to a private network");
+  } catch (e) {
+    if (e instanceof BlockedUrlError) throw e;
+    // name could not be resolved here (for example behind an egress proxy): the request itself will fail or go through the proxy
+  }
+}
+
 export interface FetchedPage {
   url: string;
   finalUrl: string;
@@ -49,6 +79,7 @@ async function politeWait(host: string) {
 }
 
 async function rawGet(url: string): Promise<{ status: number; finalUrl: string; contentType: string; body: string }> {
+  await assertPublicUrl(url);
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
@@ -58,6 +89,15 @@ async function rawGet(url: string): Promise<{ status: number; finalUrl: string; 
       signal: ctrl.signal,
     });
     const contentType = res.headers.get("content-type") ?? "";
+    // a redirect must not lead to a private address either
+    if (res.url && res.url !== url) {
+      try {
+        await assertPublicUrl(res.url);
+      } catch {
+        await res.body?.cancel().catch(() => {});
+        return { status: 0, finalUrl: url, contentType: "", body: "" };
+      }
+    }
     const reader = res.body?.getReader();
     const chunks: Uint8Array[] = [];
     let total = 0;
@@ -172,6 +212,11 @@ export function isEnvLive(): boolean {
  */
 export async function probeUrl(url: string): Promise<{ status: number; reason?: string }> {
   return withRecording("probe", { url }, async () => {
+    try {
+      await assertPublicUrl(url);
+    } catch {
+      return { status: 0, reason: "address is not public" };
+    }
     try {
       if (!(await robotsAllows(url))) return { status: 0, reason: "disallowed by robots.txt" };
     } catch {

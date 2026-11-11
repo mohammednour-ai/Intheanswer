@@ -27,7 +27,14 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   let html = r.html;
   if (html.includes(LIVE_REVIEWS_MARKER)) {
     let table = "";
-    if (r.clinic_id && r.city_id) {
+    // capped per report per day, so a report URL cannot be used to run up Places cost
+    const [slot] = await sql<{ ok: boolean }[]>`
+      update reports set live_fetch_day = current_date,
+        live_fetch_count = case when live_fetch_day = current_date then live_fetch_count + 1 else 1 end
+      where id=${r.id} and (live_fetch_day is distinct from current_date
+        or live_fetch_count < (select live_reviews_per_report_per_day from app_settings where id))
+      returning true as ok`;
+    if (slot?.ok && r.clinic_id && r.city_id) {
       const names = [...new Set((r.data.rows ?? []).flatMap((row) => row.namedInstead))].slice(0, 6);
       table = await renderLiveReviewTable({
         clinicId: r.clinic_id, clinicName: r.data.clinic?.name ?? "Your clinic", clinicPlaceId: r.place_id, cityId: r.city_id, competitorNames: names,

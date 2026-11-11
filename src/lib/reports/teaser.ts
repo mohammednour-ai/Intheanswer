@@ -60,8 +60,8 @@ export async function siteCandidates(clinicId: string): Promise<{ runId: string 
   const [run] = await sql<{ id: string; pages_crawled: number }[]>`
     select id, pages_crawled from site_test_runs where clinic_id=${clinicId} and status='done' order by finished_at desc limit 1`;
   if (!run) return { runId: null, pages: 0, candidates: [] };
-  const rows = await sql<{ check_key: string; result: string; impact: number; finding_text: string | null; evidence: Evidence[] }[]>`
-    select check_key, result::text, impact, finding_text, evidence from site_test_checks where run_id=${run.id}`;
+  const rows = await sql<{ check_key: string; result: string; impact: number; finding_text: string | null; evidence: Evidence[]; metrics: { source?: string } }[]>`
+    select check_key, result::text, impact, finding_text, evidence, metrics from site_test_checks where run_id=${run.id}`;
   return {
     runId: run.id,
     pages: run.pages_crawled,
@@ -70,7 +70,9 @@ export async function siteCandidates(clinicId: string): Promise<{ runId: string 
       result: r.result,
       is_gap: r.result === "needs_work",
       severity: Math.round(r.impact * 0.95),
-      finding_text: r.finding_text,
+      // A lab test from our own server can overstate slowness: speed is a teaser
+      // finding only when it comes from PageSpeed Insights (real-visitor data).
+      finding_text: r.check_key.startsWith("speed_") && r.metrics?.source !== "pagespeed" ? null : r.finding_text,
       evidence: r.evidence,
       source: "site" as const,
     })),

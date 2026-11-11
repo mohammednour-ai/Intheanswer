@@ -56,3 +56,52 @@ export async function gate(kind: string): Promise<string | null> {
 export async function runWorkerOnce(opts: { limit?: number; kinds?: string[]; extraHandlers?: Record<string, Handler> } = {}): Promise<RunResult> {
   return runJobs({ ...handlers, ...(opts.extraHandlers ?? {}) }, { limit: opts.limit ?? 10, kinds: opts.kinds, gate });
 }
+
+/** Jobs that can take minutes (a browser, a 40-page crawl). */
+export const HEAVY_JOBS = new Set(["site_test", "test_city", "audit_clinic"]);
+
+/**
+ * Run jobs one at a time until the time budget is used. A heavy job is only
+ * started while enough of the budget is left for it, so a serverless
+ * invocation never leaves several long jobs half-run.
+ */
+export async function runWorkerBudget(budgetMs: number, heavyNeedsMs = 200_000): Promise<RunResult> {
+  const start = Date.now();
+  const total: RunResult = { claimed: 0, done: 0, failed: 0, deferred: 0 };
+  await expirePending();
+  for (;;) {
+    const left = budgetMs - (Date.now() - start);
+    if (left < 15_000) break;
+    const kinds = Object.keys(handlers).filter((k) => left >= heavyNeedsMs || !HEAVY_JOBS.has(k));
+    const r = await runJobs(handlers, { limit: 1, kinds, gate });
+    if (r.claimed === 0) break;
+    total.claimed += r.claimed; total.done += r.done; total.failed += r.failed; total.deferred += r.deferred;
+    if (r.deferred && !r.done && !r.failed) break; // only gated or waiting work is left
+  }
+  return total;
+}
+
+/**
+ * REVIEW-mode items expire after pending_expiry_days. The clinic's audit is
+ * rerun before anything is queued again, so stale findings are never sent.
+ */
+export async function expirePending(): Promise<number> {
+  const sql = db();
+  const rows = await sql<{ id: string; clinic_id: string | null }[]>`
+    update messages set status='expired', updated_at=now()
+    where status='pending_review' and expires_at is not null and expires_at < now()
+    returning id, clinic_id`;
+  for (const m of rows) {
+    await sql`insert into approval_log (message_id, action, actor_email) values (${m.id}, 'expire', 'system')`;
+    if (!m.clinic_id) continue;
+    await sql`update reports set superseded=true where clinic_id=${m.clinic_id} and kind='teaser'`;
+    await sql`update clinics set status='contact_found', status_reason='queued item expired; audit rerun', updated_at=now() where id=${m.clinic_id}`;
+    const label = `${localDate(new Date()).slice(0, 7)}-r${m.id.slice(0, 8)}`;
+    const [c] = await sql<{ sector_id: number; city_id: number }[]>`select sector_id, city_id from clinics where id=${m.clinic_id}`;
+    const month = localDate(new Date()).slice(0, 7);
+    const { enqueue } = await import("./queue");
+    await enqueue("test_city", `test:${c.sector_id}:${c.city_id}:${month}`, { sectorId: c.sector_id, cityId: c.city_id, runLabel: month });
+    await enqueue("audit_clinic", `audit:${m.clinic_id}:${label}`, { clinicId: m.clinic_id, runLabel: month });
+  }
+  return rows.length;
+}

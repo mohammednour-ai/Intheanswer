@@ -80,6 +80,7 @@ async function handleAudit(ctx: JobContext) {
                        ${ch.severity}, ${ch.findingText ?? null})`;
     }
     await tx`update clinics set site_name=coalesce(${siteName}, site_name),
+               name=case when source='places' then coalesce(${siteName}, name) else name end,
                phone=coalesce(${sitePhone}, phone), phone_confirmed_on_site=${!!sitePhone},
                address=coalesce(${siteAddress}, address), address_confirmed_on_site=${!!siteAddress},
                status='audited', updated_at=now() where id=${clinicId}`;
