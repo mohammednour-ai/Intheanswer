@@ -11,6 +11,7 @@ import { putFile } from "../storage";
 import { buildFirstEmail } from "../emails/firstEmail";
 import { verifyTeaser, scanLanguage, type Flag } from "./verify";
 import { decideReview } from "../sending/modes";
+import { sendJobPriority } from "../sending/priority";
 import { effectiveDryRun, getSettings } from "../settings";
 import type { TeaserData } from "../reports/types";
 
@@ -125,7 +126,7 @@ async function handleVerifyTeaser(ctx: JobContext) {
               status_reason=${finalBlocked ? reason : null}, updated_at=now() where id=${rep.clinic_id}`;
     return { status, reason };
   });
-  if (result.status === "approved") await ctx.enqueue("send_message", `send:${messageId}`, { messageId }, { priority: 50 });
+  if (result.status === "approved") await ctx.enqueue("send_message", `send:${messageId}`, { messageId }, { priority: await sendJobPriority(rep.clinic_id) });
   return { status: result.status, flags, removed: v.removed, findings: v.data.findings.length };
 }
 

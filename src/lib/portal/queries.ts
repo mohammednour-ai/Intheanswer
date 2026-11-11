@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { localDate } from "../time";
+import { ORDER_SQL } from "../sending/priority";
 
 export interface QueueItem {
   id: string;
@@ -16,16 +17,21 @@ export interface QueueItem {
   city: string | null;
   sector: string | null;
   score: string | null;
+  priority_score: number | null;
+  priority_manual: number | null;
+  priority_breakdown: { label: string; points: number; max: number; available: boolean; why: string }[] | null;
 }
 
 const ITEM_COLUMNS = (sql: ReturnType<typeof db>) => sql`
   m.id, m.type, m.status, m.subject, m.to_email, m.created_at, m.expires_at, m.flags, m.review_reason,
-  m.clinic_id, c.name as clinic_name, ci.name as city, se.name as sector,
+  m.clinic_id, c.priority_score, c.priority_manual, c.priority_breakdown, c.name as clinic_name, ci.name as city, se.name as sector,
   (select sc.recommended || ' of ' || sc.total from scores sc where sc.clinic_id = c.id
      order by sc.created_at desc limit 1) as score`;
 
 export async function listMessages(statuses: string[], limit = 100): Promise<QueueItem[]> {
   const sql = db();
+  // the review and send queues follow the send order; history lists are newest first
+  const bySendOrder = statuses.some((x) => x === "pending_review" || x === "approved");
   return sql<QueueItem[]>`
     select ${ITEM_COLUMNS(sql)}
     from messages m
@@ -33,7 +39,7 @@ export async function listMessages(statuses: string[], limit = 100): Promise<Que
     left join cities ci on ci.id = c.city_id
     left join sectors se on se.id = c.sector_id
     where m.status = any(${statuses})
-    order by m.created_at desc
+    order by ${bySendOrder ? sql.unsafe(ORDER_SQL) : sql`m.created_at desc`}
     limit ${limit}`;
 }
 

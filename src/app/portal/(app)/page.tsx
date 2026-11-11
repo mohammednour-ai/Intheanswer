@@ -13,9 +13,10 @@ export default async function QueuePage() {
       </div>
       <p className="muted">
         Messages waiting for your approval. Nothing here sends by itself. Items expire after 7 days and the clinic
-        is re-audited before it is queued again.
+        is re-audited before it is queued again. The list is in send order: highest priority first, and you can
+        reorder it by hand.
       </p>
-      <MessageList items={items} empty="Nothing is waiting." />
+      <MessageList items={items} empty="Nothing is waiting." reorderable />
     </section>
   );
 }

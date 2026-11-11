@@ -3,6 +3,7 @@ import { enqueue } from "../jobs/queue";
 import { sha256 } from "../tokens";
 import { addSuppression } from "./suppression";
 import { scanLanguage } from "../pipeline/verify";
+import { sendJobPriority } from "./priority";
 
 /**
  * Owner actions on queued messages. Every action is written to approval_log
@@ -53,7 +54,7 @@ export async function approve(id: string, actor: Actor, action: "approve" | "bul
   const sql = db();
   await sql`update messages set status='approved', updated_at=now() where id=${id} and status = any(${ACTIONABLE})`;
   await log(id, action, actor);
-  await enqueue("send_message", `send:${id}`, { messageId: id }, { priority: 50 });
+  await enqueue("send_message", `send:${id}`, { messageId: id }, { priority: await sendJobPriority(m.clinic_id) });
 }
 
 export async function bulkApprove(ids: string[], actor: Actor) {

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { requireOwner } from "@/lib/auth";
 import * as approval from "@/lib/sending/approval";
 import { db } from "@/lib/db";
+import { reorder } from "@/lib/sending/priority";
 
 async function actor() {
   const o = await requireOwner();
@@ -52,4 +53,10 @@ export async function bulkApproveAction(ids: string[]) {
   );
   revalidatePath("/portal");
   return res;
+}
+
+export async function reorderAction(clinicId: string, move: "top" | "up" | "down" | "reset") {
+  await requireOwner();
+  await reorder(clinicId, move);
+  revalidatePath("/portal");
 }

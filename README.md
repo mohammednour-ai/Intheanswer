@@ -62,6 +62,17 @@ and `sitemap.xml` are generated; AI crawlers are allowed.
   scripts/selfcheck.ts` runs the audit and site checks against it and exits 1 on any failure. The
   address check needs the real owner details in the environment at build time.
 
+## Send order
+
+Every eligible clinic is contacted eventually; the daily queue is filled highest priority first
+(`src/lib/sending/priority.ts`). The score is computed in the scoring step from rows already stored:
+strong reviews and not recommended (+2), weak website from the site test (+3), fewer than 30 reviews
+(+2), conflicting hours or name (+1), public email on its own site (+1). A waiting item gains a point a
+week so a low score is delayed, never dropped. The portal queue shows the score with its breakdown and
+has Top / Up / Down / Use score buttons; a hand order wins over the score. The two review lines need
+stored review numbers, which exist only for a clinic that connected its own Business Profile (Google
+Maps ratings are never stored), so for other clinics they show "not available".
+
 ## Safety rules in code
 
 - Only public addresses are fetched; private, loopback and link-local hosts are refused, including

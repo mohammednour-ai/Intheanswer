@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { QueueItem } from "@/lib/portal/queries";
 import styles from "./portal.module.css";
+import { reorderAction } from "./actions";
 
 const TYPE_LABEL: Record<string, string> = {
   first_email: "First email",
@@ -18,7 +19,7 @@ export function typeLabel(t: string) {
   return TYPE_LABEL[t] ?? t;
 }
 
-export function MessageList({ items, empty }: { items: QueueItem[]; empty: string }) {
+export function MessageList({ items, empty, reorderable = false }: { items: QueueItem[]; empty: string; reorderable?: boolean }) {
   if (!items.length) return <p className="muted">{empty}</p>;
   return (
     <ul style={{ listStyle: "none", padding: 0, margin: 0 }} className="stack">
@@ -50,6 +51,30 @@ export function MessageList({ items, empty }: { items: QueueItem[]; empty: strin
                 )}
               </div>
             </Link>
+            {m.clinic_id ? (
+              <div className="row small" style={{ marginTop: 6 }}>
+                <details>
+                  <summary style={{ cursor: "pointer", minHeight: 44, display: "inline-flex", alignItems: "center" }}>
+                    Send priority {m.priority_score ?? 0}{m.priority_manual != null ? " · ordered by hand" : ""}
+                  </summary>
+                  <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
+                    {(m.priority_breakdown ?? []).map((l, i) => (
+                      <li key={i}>
+                        {l.label}: {l.available ? `+${l.points} of ${l.max}` : "not available"} <span className="muted">({l.why})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+                {reorderable ? (
+                  <>
+                    <form action={reorderAction.bind(null, m.clinic_id, "top")}><button className="btn" aria-label={`Move ${m.clinic_name} to the top`}>Top</button></form>
+                    <form action={reorderAction.bind(null, m.clinic_id, "up")}><button className="btn" aria-label={`Move ${m.clinic_name} up`}>Up</button></form>
+                    <form action={reorderAction.bind(null, m.clinic_id, "down")}><button className="btn" aria-label={`Move ${m.clinic_name} down`}>Down</button></form>
+                    {m.priority_manual != null ? <form action={reorderAction.bind(null, m.clinic_id, "reset")}><button className="btn">Use score</button></form> : null}
+                  </>
+                ) : null}
+              </div>
+            ) : null}
           </li>
         );
       })}

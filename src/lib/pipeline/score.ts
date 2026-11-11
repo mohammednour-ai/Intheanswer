@@ -3,6 +3,7 @@ import type { JobContext } from "../jobs/queue";
 import { PermanentJobError, DeferJob } from "../jobs/queue";
 import { register } from "../jobs/handlers";
 import { matchClinic, type NamedClinic } from "./match";
+import { updateClinicPriority } from "../sending/priority";
 
 /**
  * Step 5: score = number of questions where the clinic was recommended.
@@ -64,6 +65,7 @@ async function handleScore(ctx: JobContext) {
     on conflict (clinic_id, test_run_id, audit_id) do update set recommended=excluded.recommended, listed_only=excluded.listed_only,
       not_named=excluded.not_named, confirmed_findings=excluded.confirmed_findings, qualifies=excluded.qualifies, reason=excluded.reason
     returning id`;
+  const priority = await updateClinicPriority(clinicId, auditId, rec, results.length);
   const [src] = await sql<{ source: string }[]>`select source from clinics where id=${clinicId}`;
   const selfServe = src?.source === "self_serve"; // the clinic asked for it: never parked
   if (!q.ok && !force && !selfServe) {
@@ -72,7 +74,7 @@ async function handleScore(ctx: JobContext) {
   }
   await ctx.enqueue("build_teaser", `teaser:${score.id}`, { clinicId, scoreId: score.id, ...(selfServe ? { messageType: "self_serve_teaser" } : {}) });
   if (runLabel) await ctx.enqueue("propose_pages", `pages:${clinicId}:${runLabel}`, { clinicId, runLabel, testRunId }, { maxAttempts: 2 });
-  return { score: `${rec} of ${results.length}`, findings: f.n, next: "build_teaser" };
+  return { score: `${rec} of ${results.length}`, findings: f.n, priority: priority.score, next: "build_teaser" };
 }
 
 register("score_clinic", handleScore);
