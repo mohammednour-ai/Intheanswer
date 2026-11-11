@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.APP_URL ?? "https://intheanswer.ca"),
   title: { default: "In The Answer", template: "%s | In The Answer" },
   description:
-    "In The Answer tests whether AI assistants name your Ontario clinic when patients ask for a recommendation, and shows you what to fix.",
+    "In The Answer tests whether AI assistants name your Ontario clinic when patients ask for a recommendation, and shows you what to fix. Free report for dental, family and medspa clinics.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -9,8 +9,8 @@ Status: **built in phases, dry run only.** Nothing is sent or charged until the 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Data model, RLS, job queue, portal shell | done |
-| 2 | Pipeline steps 1 to 7 (discover → verify), teasers | next |
-| 3 | Public site | |
+| 2 | Pipeline steps 1 to 7 (discover → verify), teasers | built; real teasers need `ANTHROPIC_API_KEY` |
+| 3 | Public site | done |
 | 4 | Sending, approval queue, replies | |
 | 5 | Stripe and full-report delivery | |
 | 6 | Monthly retests | |
@@ -44,6 +44,33 @@ plain Postgres. Never apply it to a Supabase project.
   suppression by address and domain, max two cold contacts per clinic ever, auto-pause on >3% bounces or
   any complaint, DNS gate), per-type REVIEW/AUTO modes with "first N still reviewed", owner actions.
 - `src/app/portal`: owner portal (mobile first). Queue, Held, Sent, Replies, Overview, Settings.
+
+## Public site
+
+Pages under `src/app/(site)`: home (with the self-serve box), how it works, pricing, sample report
+(invented clinic, labelled), contact, privacy, unsubscribe, and `/bot` (about the crawler). `robots.txt`
+and `sitemap.xml` are generated; AI crawlers are allowed.
+
+- **Self-serve box** (`src/lib/selfServe.ts`): a clinic enters its website, email, type and city and
+  goes through the same pipeline. Public https sites only, 3 requests per visitor per day, one per site
+  per 14 days, honeypot. The email is used only if it is on the site's domain or published on the site;
+  otherwise the request is held for the owner. Self-serve clinics are never parked.
+- **Unsubscribe**: `/unsubscribe/<token>` (signed link, confirm button, no login), `/unsubscribe` (by
+  address) and `POST /api/unsubscribe/<token>` for one-click unsubscribe from mail clients. Takes effect
+  at once: suppresses the address, cancels unsent messages, closes the clinic.
+- **Our own site passes our own checks**: with the site running, `BASE=http://localhost:3000 npx tsx
+  scripts/selfcheck.ts` runs the audit and site checks against it and exits 1 on any failure. The
+  address check needs the real owner details in the environment at build time.
+
+## Safety rules in code
+
+- Only public addresses are fetched; private, loopback and link-local hosts are refused, including
+  after a redirect (`assertPublicUrl`).
+- The worker runs one job at a time inside a time budget (`runWorkerBudget`); `vercel.json` calls it
+  every minute. Site tests need a function limit of 300 s; Chromium on Vercel is untested, so run site
+  tests from a small separate worker (`npm run worker`) if it fails there.
+- Queued items expire after 7 days and the clinic's audit is queued again.
+- Sending is not built yet: approved items wait in the queue.
 
 ## Added services
 

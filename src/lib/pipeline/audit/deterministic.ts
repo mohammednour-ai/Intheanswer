@@ -11,6 +11,7 @@ import type { CheckOutcome } from "./types";
 const BUSINESS_TYPES = new Set([
   "Dentist", "MedicalClinic", "MedicalBusiness", "Physician", "LocalBusiness", "MedicalOrganization",
   "HealthAndBeautyBusiness", "DaySpa", "BeautySalon", "Optician", "Hospital", "DiagnosticLab", "HealthClub",
+  "ProfessionalService", "Pharmacy", "Physiotherapy", "Dermatology", "Pediatric", "Optometric", "EmergencyService",
 ]);
 
 function host(site: SiteRead) {
