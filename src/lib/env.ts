@@ -50,6 +50,10 @@ const schema = z.object({
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 
+  // Print and mail (PostGrid). test_sk_... never mails; live_sk_... prints and mails.
+  POSTGRID_API_KEY: z.string().optional(),
+  POSTGRID_WEBHOOK_SECRET: z.string().optional(),
+
   // Payments
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),

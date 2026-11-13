@@ -1,6 +1,6 @@
 import { documentShell, esc } from "./html";
 import { markSvg, copilotAvatarSvg, COPILOT_NAME } from "../brand";
-import type { TeaserData, RowStatus } from "./types";
+import type { TeaserData, RowStatus, OfferItem } from "./types";
 import { LIVE_REVIEWS_MARKER } from "../reviews/liveTable";
 
 /** Teaser layout follows the owner's design canvas ("Teaser report (free)"). */
@@ -22,6 +22,44 @@ export function headline(d: TeaserData): string {
 /** Copilot byline, as on the design canvas: always says it is an AI system. */
 export function copilotByline(ownerName: string): string {
   return `<div class="byline">${copilotAvatarSvg({ size: 28, dot: false })}<div>Prepared by <strong>${COPILOT_NAME}</strong>, an AI system, for ${esc(ownerName)}, In The Answer. Every claim checked against stored evidence.</div></div>`;
+}
+
+export const OFFERS_START = "<!--OFFERS-->";
+export const OFFERS_END = "<!--/OFFERS-->";
+/** Used only when a report was built before the offers table existed. */
+const DEFAULT_OFFERS: OfferItem[] = [
+  { key: "monthly", name: "Monthly plan", price_cents: 20000, currency: "CAD", billing: "monthly" },
+  { key: "full_report", name: "Full report and fix files", price_cents: 20000, currency: "CAD", billing: "one_time" },
+];
+const money = (o: OfferItem) => `${(o.price_cents / 100).toFixed(o.price_cents % 100 ? 2 : 0)} ${o.currency}`;
+
+/** The two offers, monthly plan first and visually dominant, prices from the offers table. */
+export function renderOffers(items: OfferItem[], urls: { oneTimeUrl: string; monthlyUrl: string; minTerm: string }): string {
+  const monthly = items.find((o) => o.billing === "monthly");
+  const once = items.find((o) => o.billing === "one_time");
+  return `<section>
+  <h2>Two ways to fix it</h2>
+  <div class="offers" style="grid-template-columns:7fr 5fr">
+    ${monthly ? `<div class="offer main">
+      <div class="row"><div class="label">${esc(monthly.name)}</div><div class="pill">We do the work for you</div></div>
+      <div class="price">${esc(money(monthly))} <span>per month · minimum ${esc(urls.minTerm)}</span></div>
+      <ul>
+        <li>Your website rebuilt or upgraded, with every fix installed by us</li>
+        <li>The same questions retested every month, with a before and after</li>
+        <li>A watch on the clinics named beside you, and what they changed</li>
+        <li>Hours, notices and listings kept current all year</li>
+      </ul>
+      <a class="btn" href="${esc(urls.monthlyUrl)}">Start the monthly plan</a>
+    </div>` : ""}
+    ${once ? `<div class="offer">
+      <div class="label">One time</div>
+      <div class="price">${esc(money(once))}</div>
+      <div style="font-weight:600">${esc(once.name)}</div>
+      <p>Every finding and the fixes, ready for your web person to paste in. Includes one retest four weeks later.</p>
+      <a class="btn" href="${esc(urls.oneTimeUrl)}">Get the full report</a>
+    </div>` : ""}
+  </div>
+</section>`;
 }
 
 export function reportHeader(docLabel: string): string {
@@ -85,29 +123,7 @@ ${reportHeader("AI Visibility Report · Preview")}
 
 ${LIVE_REVIEWS_MARKER}
 
-<section>
-  <h2>Two ways to fix it</h2>
-  <div class="offers">
-    <div class="offer">
-      <div class="label">One time</div>
-      <div class="price">200 CAD</div>
-      <div style="font-weight:600">Full report and fix files</div>
-      <p>All ${d.findingsTotal} findings and the fixes, ready for your web person to paste in. Includes one retest four weeks later.</p>
-      <a class="btn" href="${esc(d.offers.oneTimeUrl)}">Get the full report</a>
-    </div>
-    <div class="offer main">
-      <div class="row"><div class="label">Monthly plan</div><div class="pill">We do the work for you</div></div>
-      <div class="price">200 CAD <span>per month · minimum ${esc(d.offers.minTerm)}</span></div>
-      <ul>
-        <li>Your website rebuilt or upgraded, with every fix installed by us</li>
-        <li>The same questions retested every month, with a before and after</li>
-        <li>A watch on the clinics named beside you, and what they changed</li>
-        <li>Hours, notices and listings kept current all year</li>
-      </ul>
-      <a class="btn" href="${esc(d.offers.monthlyUrl)}">Start the monthly plan</a>
-    </div>
-  </div>
-</section>
+${OFFERS_START}${renderOffers(d.offers.items ?? DEFAULT_OFFERS, d.offers)}${OFFERS_END}
 
 <footer class="foot">
   ${copilotByline(d.owner.name)}

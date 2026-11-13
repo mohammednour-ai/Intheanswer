@@ -117,6 +117,8 @@ export async function verifyTeaser(input: {
   scoreId: string;
   live: boolean;
   withModel: boolean;
+  /** Verify the report content only (used for letters, which have no email draft). */
+  skipEmail?: boolean;
   verifier?: ModelVerifier;
 }): Promise<VerifyResult> {
   const sql = db();
@@ -251,12 +253,12 @@ export async function verifyTeaser(input: {
   flags.push(...scanLanguage(teaserText, "report"));
   // the email body is rebuilt from the surviving findings by the caller; scan what we have
   const emailMain = draft.bodyText.split("\n--\n")[0];
-  flags.push(...scanLanguage(draft.subject + "\n" + emailMain, "email"));
+  if (!input.skipEmail) flags.push(...scanLanguage(draft.subject + "\n" + emailMain, "email"));
   const reviewNumber = /\b\d+(\.\d)?\s*(stars?|reviews?|ratings?)\b|\brated \d/i;
   if (reviewNumber.test(draft.subject + "\n" + emailMain) || reviewNumber.test(teaserText)) {
     flags.push({ code: "review_number_stored", message: "review numbers may only appear in the live web table (Google Maps terms), not in the stored report or email", severity: "block" });
   }
-  if (!/unsubscribe|stop all emails/i.test(draft.bodyText)) flags.push({ code: "no_unsubscribe", message: "email has no unsubscribe link", severity: "block" });
+  if (!input.skipEmail && !/unsubscribe|stop all emails/i.test(draft.bodyText)) flags.push({ code: "no_unsubscribe", message: "email has no unsubscribe link", severity: "block" });
   if (OWNER_PLACEHOLDER_RE.test(draft.bodyText) || OWNER_PLACEHOLDER_RE.test(JSON.stringify(data.owner))) {
     flags.push({
       code: "owner_details_placeholder",

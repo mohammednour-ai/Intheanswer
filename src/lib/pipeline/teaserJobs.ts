@@ -12,6 +12,7 @@ import { buildFirstEmail } from "../emails/firstEmail";
 import { verifyTeaser, scanLanguage, type Flag } from "./verify";
 import { decideReview } from "../sending/modes";
 import { sendJobPriority } from "../sending/priority";
+import { ensureCode, shortUrl } from "../qr";
 import { effectiveDryRun, getSettings } from "../settings";
 import type { TeaserData } from "../reports/types";
 
@@ -40,7 +41,7 @@ async function handleBuildTeaser(ctx: JobContext) {
   }
   const token = randomToken();
   const data = await buildTeaserData(clinicId, scoreId, token);
-  const draft = buildFirstEmail(data, { toEmail: to, sourceUrl: src ?? "", reportUrl: reportUrl(token) });
+  const draft = buildFirstEmail(data, { toEmail: to, sourceUrl: src ?? "", reportUrl: shortUrl(await ensureCode(clinicId), "e") });
   const [report] = await sql<{ id: string }[]>`
     insert into reports (clinic_id, kind, token, score_id, data, html)
     values (${clinicId}, 'teaser', ${token}, ${scoreId}, ${sql.json({ ...data, verified: false } as never)}, ${renderTeaser(data)})
@@ -76,7 +77,7 @@ async function handleVerifyTeaser(ctx: JobContext) {
   if (v.usage) await ctx.cost({ provider: "anthropic", operation: "verify", units: v.usage as never, costUsd: v.costUsd, clinicId: rep.clinic_id });
 
   // rebuild the email from what survived, then scan it again
-  const draft = buildFirstEmail(v.data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token) });
+  const draft = buildFirstEmail(v.data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: shortUrl(await ensureCode(rep.clinic_id), "e") });
   const flags: Flag[] = v.flags.filter((f) => f.code !== "email_finding_removed");
   for (const f of scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)")) {
     if (!flags.some((x) => x.code === f.code)) flags.push(f);

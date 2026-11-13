@@ -53,8 +53,17 @@ export interface TeaserData {
   findingsTotal: number;
   /** Site test run the site findings come from (for the verification gate). */
   siteRunId?: string | null;
-  offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string };
+  offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string; items?: OfferItem[] };
   limits: string;
   owner: OwnerFooter;
   claims: Claim[];
+}
+
+/** A row of the offers table: prices are read from it, never hard-coded. */
+export interface OfferItem {
+  key: string;
+  name: string;
+  price_cents: number;
+  currency: string;
+  billing: "one_time" | "monthly";
 }

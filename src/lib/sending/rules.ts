@@ -2,6 +2,7 @@ import { db } from "../db";
 import type { AppSettings } from "../settings";
 import { daysBetween, inSendWindow, localDate, torontoToUtc, isBusinessDay } from "../time";
 import { isSuppressed } from "./suppression";
+import { channelOpen } from "../channels/settings";
 
 /**
  * Sending rules, enforced in code for every outbound message in both modes.
@@ -78,6 +79,11 @@ export async function checkSend(m: SendCandidate, s: AppSettings, now = new Date
   if (isCold && m.clinic_id) {
     const [c] = await sql<{ contact_count: number; replied: boolean; status: string }[]>`
       select contact_count, replied, status::text from clinics where id = ${m.clinic_id}`;
+    // never two channels inside the cool-down window: a recent letter blocks a cold email
+    const [mail] = await sql<{ at: Date | null; days: number }[]>`
+      select max(p.mailed_at) as at, (select (values->>'cooldown_days')::int from channel_settings where channel='routing') as days
+      from mail_pieces p where p.clinic_id=${m.clinic_id}`;
+    if (mail?.at && now.getTime() - mail.at.getTime() < mail.days * 86400e3) return { ok: false, outcome: "defer", reason: `a letter was mailed inside the ${mail.days}-day cool-down`, retryAt: new Date(mail.at.getTime() + mail.days * 86400e3) };
     if (c?.status === "do_not_contact" || c?.status === "suppressed") return { ok: false, outcome: "block", reason: `clinic is ${c.status}` };
     if (c && c.replied) return { ok: false, outcome: "block", reason: "clinic replied; cold sequence stops" };
     if (c && c.contact_count >= 2) return { ok: false, outcome: "block", reason: "clinic already contacted twice" };
@@ -89,6 +95,9 @@ export async function checkSend(m: SendCandidate, s: AppSettings, now = new Date
   }
 
   if (isCold) {
+    // channel settings: switch, pause-until, daily cap, monthly spend cap
+    const ch = await channelOpen("email");
+    if (!ch.open) return { ok: false, outcome: "defer", reason: ch.reason, retryAt: new Date(now.getTime() + 3600e3) };
     if (!inSendWindow(now, s.send_window_start, s.send_window_end)) {
       return { ok: false, outcome: "defer", reason: "outside sending hours", retryAt: nextWindowStart(now, s) };
     }

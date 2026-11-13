@@ -3,6 +3,9 @@ import { db } from "@/lib/db";
 import { currentOwner } from "@/lib/auth";
 import { sha256 } from "@/lib/tokens";
 import { LIVE_REVIEWS_MARKER, renderLiveReviewTable } from "@/lib/reviews/liveTable";
+import { CODE_RE, resolveCode, visitSource, deviceType } from "@/lib/qr";
+import { clientIp, decorateTeaser, latestTeaserFor, rateLimited } from "@/lib/teaserPage";
+import type { TeaserData } from "@/lib/reports/types";
 
 /**
  * Private report page at an unguessable URL. Views are counted unless the
@@ -10,8 +13,40 @@ import { LIVE_REVIEWS_MARKER, renderLiveReviewTable } from "@/lib/reviews/liveTa
  */
 export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   const { token } = await ctx.params;
-  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return new Response("Not found", { status: 404 });
+  if (rateLimited("view:" + clientIp(req.headers), 30)) return new Response("Too many requests. Please try again in a minute.", { status: 429 });
   const sql = db();
+  // Short code from a letter, a typed URL or an email: the clinic's current teaser, with the two actions.
+  if (CODE_RE.test(token)) {
+    const hit = await resolveCode(token);
+    const rep = hit ? await latestTeaserFor(hit.clinicId) : null;
+    if (!hit || !rep) return new Response("Not found", { status: 404 });
+    const q = req.nextUrl.searchParams;
+    const owner = q.get("preview") === "owner" ? await currentOwner() : null;
+    if (!owner && !q.get("done") && !q.get("err")) {
+      await sql`insert into page_visits (code, clinic_id, source, device)
+                values (${token}, ${hit.clinicId}, ${visitSource(q.get("s"))}, ${deviceType(req.headers.get("user-agent") ?? "")})`;
+      await sql`update reports set view_count = view_count + 1, last_viewed_at = now(), first_viewed_at = coalesce(first_viewed_at, now()) where id=${rep.id}`;
+    }
+    let page = await decorateTeaser(rep.html, token, rep.data as TeaserData, q.get("s") ?? "", { done: q.get("done"), err: q.get("err") });
+    if (page.includes(LIVE_REVIEWS_MARKER)) {
+      let table = "";
+      const [slot] = await sql<{ ok: boolean }[]>`
+        update reports set live_fetch_day = current_date,
+          live_fetch_count = case when live_fetch_day = current_date then live_fetch_count + 1 else 1 end
+        where id=${rep.id} and (live_fetch_day is distinct from current_date
+          or live_fetch_count < (select live_reviews_per_report_per_day from app_settings where id))
+        returning true as ok`;
+      if (slot?.ok && rep.city_id) {
+        const names = [...new Set(((rep.data as TeaserData).rows ?? []).flatMap((row) => row.namedInstead))].slice(0, 6);
+        table = await renderLiveReviewTable({ clinicId: hit.clinicId, clinicName: (rep.data as TeaserData).clinic.name, clinicPlaceId: rep.place_id, cityId: rep.city_id, competitorNames: names }).catch(() => "");
+      }
+      page = page.replace(LIVE_REVIEWS_MARKER, table);
+    }
+    return new Response(page, {
+      headers: { "content-type": "text/html; charset=utf-8", "x-robots-tag": "noindex, nofollow", "cache-control": "private, no-store", "referrer-policy": "no-referrer" },
+    });
+  }
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return new Response("Not found", { status: 404 });
   const [r] = await sql<{ id: string; html: string; data: { verified?: boolean; rows?: { namedInstead: string[] }[]; clinic?: { name: string } }; superseded: boolean; clinic_id: string | null; place_id: string | null; city_id: number | null }[]>`
     select r.id, r.html, r.data, r.superseded, r.clinic_id, c.place_id, c.city_id
     from reports r left join clinics c on c.id = r.clinic_id where r.token=${token}`;

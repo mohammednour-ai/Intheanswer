@@ -6,7 +6,7 @@ import { SITE_CHECK_LABELS } from "../sitetest/types";
 import type { Evidence } from "../pipeline/audit/types";
 import type { NamedClinic } from "../pipeline/match";
 import { namesMatch } from "../pipeline/match";
-import type { Claim, ReportFinding, ReportRow, TeaserData } from "./types";
+import type { Claim, OfferItem, ReportFinding, ReportRow, TeaserData } from "./types";
 
 /**
  * Builds the teaser's structured content from stored evidence only. Every
@@ -77,6 +77,10 @@ export async function siteCandidates(clinicId: string): Promise<{ runId: string 
       source: "site" as const,
     })),
   };
+}
+
+export async function loadOffers(): Promise<OfferItem[]> {
+  return db()<OfferItem[]>`select key, name, price_cents, currency, billing from offers where active order by sort`;
 }
 
 export async function buildTeaserData(clinicId: string, scoreId: string, reportToken: string): Promise<TeaserData> {
@@ -156,7 +160,7 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     rows,
     findings,
     pagesRead,
-    offers: { oneTimeUrl: `${base}/buy/${reportToken}/report`, monthlyUrl: `${base}/buy/${reportToken}/monthly`, minTerm: owner.minTerm },
+    offers: { oneTimeUrl: `${base}/buy/${reportToken}/report`, monthlyUrl: `${base}/buy/${reportToken}/monthly`, minTerm: owner.minTerm, items: await loadOffers() },
     limits: LIMITS_LINE(run.assistant, servedModels.join(", "), date, c.city, s.total),
     findingsTotal: gaps,
     siteRunId: site.runId,
