@@ -211,8 +211,9 @@ Everything stays a dry run until all of this is true. Do it in this order.
    (never the local shim). Create the private storage bucket `reports`. Disable public sign-ups and add the
    owner user (see "Only the owner can sign in").
 2. **Vercel**: deploy; set every variable in `.env.example`. `APP_SECRET` must be 32+ random characters
-   (signing refuses to work otherwise) and `CRON_SECRET` protects the worker route. The per-minute cron
-   needs a paid plan. Site tests and PDFs use headless Chromium: check one on Vercel, and if it fails there
+   (signing refuses to work otherwise) and `CRON_SECRET` protects the worker route. Supabase pg_cron
+   calls the worker every minute (Vercel Hobby allows a cron only once a day, so `vercel.json` keeps a
+   daily call as a safety net). Site tests and PDFs use headless Chromium: check one on Vercel, and if it fails there
    run `npm run worker` on a small always-on machine instead.
 3. **Domain (GoDaddy DNS)**: point `intheanswer.ca` and `www` at Vercel. Leave the existing MX and SPF
    records on the root domain alone (they belong to the GoDaddy mailbox). Add the records Resend gives for
