@@ -40,6 +40,7 @@ function EvidenceList({ ev }: { ev: Evidence[] }) {
 }
 
 export default async function ClinicView(props: PageProps<"/portal/clinic/[id]">) {
+  await requireOwner();
   const { id } = await props.params;
   const sp = await props.searchParams;
   const tab = sp.tab === "site" ? "site" : "reviews";

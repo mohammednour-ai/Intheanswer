@@ -20,6 +20,9 @@ import type { TeaserData } from "../reports/types";
  * and the message cannot be sent until verification has run.
  */
 
+/** Statuses a pipeline job must never overwrite. */
+const CLOSED = ["suppressed", "do_not_contact", "customer", "excluded", "closed"];
+
 export function reportUrl(token: string) {
   return `${env().APP_URL}/r/${token}`;
 }
@@ -38,21 +41,46 @@ async function handleBuildTeaser(ctx: JobContext) {
     to = c.email;
     src = c.source_url;
   }
+  // A clinic that can no longer be contacted (unsubscribed, bought, excluded) gets no teaser.
+  const [cl] = await sql<{ status: string }[]>`select status::text from clinics where id=${clinicId}`;
+  if (!cl) throw new PermanentJobError("clinic not found");
+  if (CLOSED.includes(cl.status)) return { skipped: `clinic is ${cl.status}` };
+  // The same address is never cold-emailed as two clinics (one practice can have two listings).
+  const [dup] = await sql<{ clinic_id: string }[]>`
+    select clinic_id from messages where lower(to_email)=${to.toLowerCase()} and clinic_id <> ${clinicId}
+      and type in ('first_email', 'follow_up') and status in ('draft','pending_review','held','approved','scheduled','sending','sent')
+    limit 1`;
+  if (dup && (messageType ?? "first_email") === "first_email") {
+    await sql`update clinics set status='excluded', status_reason=${`same contact address as another clinic already in outreach (${to})`}, updated_at=now() where id=${clinicId}`;
+    return { skipped: "duplicate recipient" };
+  }
+
   const token = randomToken();
   const data = await buildTeaserData(clinicId, scoreId, token);
   const draft = buildFirstEmail(data, { toEmail: to, sourceUrl: src ?? "", reportUrl: reportUrl(token) });
-  const [report] = await sql<{ id: string }[]>`
-    insert into reports (clinic_id, kind, token, score_id, data, html)
-    values (${clinicId}, 'teaser', ${token}, ${scoreId}, ${sql.json({ ...data, verified: false } as never)}, ${renderTeaser(data)})
-    returning id`;
-  const [msg] = await sql<{ id: string }[]>`
-    insert into messages (clinic_id, type, status, to_email, contact_source_url, subject, body_text, report_id, attach_pdf, claims, dry_run)
-    values (${clinicId}, ${messageType ?? "first_email"}, 'draft', ${to}, ${src ?? null}, ${draft.subject}, ${draft.bodyText},
-            ${report.id}, true, ${sql.json(draft.claims as never)}, ${await effectiveDryRun()})
-    returning id`;
-  await sql`update clinics set status='teaser_built', updated_at=now() where id=${clinicId}`;
-  await ctx.enqueue("verify_teaser", `verify:${report.id}`, { reportId: report.id, messageId: msg.id, scoreId }, { priority: 60 });
-  return { reportId: report.id, messageId: msg.id, findings: data.findings.length };
+  const dry = await effectiveDryRun();
+  // One report and one draft per score: a retry of this job finds the first ones.
+  const key = `teaser:${scoreId}`;
+  const made = await sql.begin(async (tx) => {
+    const [existing] = await tx<{ id: string; report_id: string }[]>`select id, report_id from messages where idempotency_key=${key}`;
+    if (existing) return { reportId: existing.report_id, messageId: existing.id };
+    await tx`update reports set superseded=true where clinic_id=${clinicId} and kind='teaser' and not superseded`;
+    await tx`update messages set status='cancelled', updated_at=now()
+             where clinic_id=${clinicId} and type in ('first_email', 'self_serve_teaser') and status in ('draft', 'pending_review', 'held')`;
+    const [report] = await tx<{ id: string }[]>`
+      insert into reports (clinic_id, kind, token, score_id, data, html)
+      values (${clinicId}, 'teaser', ${token}, ${scoreId}, ${tx.json({ ...data, verified: false } as never)}, ${renderTeaser(data)})
+      returning id`;
+    const [msg] = await tx<{ id: string }[]>`
+      insert into messages (clinic_id, type, status, to_email, contact_source_url, subject, body_text, report_id, attach_pdf, claims, dry_run, idempotency_key)
+      values (${clinicId}, ${messageType ?? "first_email"}, 'draft', ${to}, ${src ?? null}, ${draft.subject}, ${draft.bodyText},
+              ${report.id}, true, ${tx.json(draft.claims as never)}, ${dry}, ${key})
+      returning id`;
+    await tx`update clinics set status='teaser_built', updated_at=now() where id=${clinicId} and status <> all(${CLOSED})`;
+    return { reportId: report.id, messageId: msg.id };
+  });
+  await ctx.enqueue("verify_teaser", `verify:${made.reportId}`, { reportId: made.reportId, messageId: made.messageId, scoreId }, { priority: 60 });
+  return { reportId: made.reportId, messageId: made.messageId, findings: data.findings.length };
 }
 
 async function handleVerifyTeaser(ctx: JobContext) {
@@ -78,7 +106,7 @@ async function handleVerifyTeaser(ctx: JobContext) {
   // rebuild the email from what survived, then scan it again
   const draft = buildFirstEmail(v.data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token) });
   const flags: Flag[] = v.flags.filter((f) => f.code !== "email_finding_removed");
-  for (const f of scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)")) {
+  for (const f of scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", v.exclude)) {
     if (!flags.some((x) => x.code === f.code)) flags.push(f);
   }
   const blocked = flags.some((f) => f.severity === "block");
@@ -123,7 +151,8 @@ async function handleVerifyTeaser(ctx: JobContext) {
               updated_at=now()
               where id=${messageId}`;
     await tx`update clinics set status=${finalBlocked ? "held" : "queued"},
-              status_reason=${finalBlocked ? reason : null}, updated_at=now() where id=${rep.clinic_id}`;
+              status_reason=${finalBlocked ? reason : null}, updated_at=now()
+              where id=${rep.clinic_id} and status <> all(${CLOSED})`;
     return { status, reason };
   });
   if (result.status === "approved") await ctx.enqueue("send_message", `send:${messageId}`, { messageId }, { priority: await sendJobPriority(rep.clinic_id) });

@@ -36,6 +36,8 @@ export interface VerifyResult {
   flags: Flag[];
   removed: { what: string; why: string }[];
   passed: boolean; // no blocking flags
+  /** Names and quoted text taken from stored data; pass to scanLanguage when scanning text rebuilt from this result. */
+  exclude: ScanExclusions;
   usage: UsageLike | null;
   costUsd: number;
 }
@@ -48,8 +50,42 @@ const BANNED: { re: RegExp; why: string }[] = [
   { re: /\b(worse|inferior|bad|poor|terrible) than\b/i, why: "criticises another clinic" },
 ];
 
-export function scanLanguage(text: string, where: string): Flag[] {
+/** Text that is not ours to word: what the scan must not read as our own claim. */
+export interface ScanExclusions {
+  /** Proper names known from stored data: the clinic, the clinics an answer named. */
+  names?: string[];
+  /** Text quoted verbatim from stored data: the patient questions, quotes from the clinic's own pages. */
+  quoted?: string[];
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Remove known names and known quoted text (and addresses, which are not
+ * sentences) from the text before the banned-wording scan. "Premier Dental"
+ * or the question "Who is the best dentist in Barrie?" are facts we repeat,
+ * not claims we make. Only exact, whole occurrences of strings taken from the
+ * data are removed; every other word is still scanned, so "Premier Dental is
+ * the premier choice" is still caught.
+ */
+export function stripKnownText(text: string, ex: ScanExclusions = {}): string {
+  let out = text.replace(/\bhttps?:\/\/\S+/gi, " ").replace(/\b[^\s@<>()]+@[^\s@<>()]+\.[a-z]{2,24}\b/gi, " ");
+  const known = [...(ex.quoted ?? []), ...(ex.names ?? [])]
+    .map((s) => (s ?? "").replace(/\s+/g, " ").trim())
+    .filter((s) => s.length >= 3)
+    // a "name" that is nothing but a banned word (a clinic called "Premier") would switch the rule off for that word
+    .filter((s) => !BANNED.some((x) => new RegExp(`^(?:${x.re.source})$`, "i").test(s)))
+    .sort((a, b) => b.length - a.length); // longest first, so a name inside a quote goes with the quote
+  for (const k of [...new Set(known)]) {
+    const body = escapeRe(k).replace(/ /g, "\\s+").replace(/['‘’]/g, "['‘’]").replace(/["“”]/g, '["“”]');
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${body}(?![\\p{L}\\p{N}])`, "giu"), " ");
+  }
+  return out;
+}
+
+export function scanLanguage(textRaw: string, where: string, exclude: ScanExclusions = {}): Flag[] {
   const flags: Flag[] = [];
+  const text = stripKnownText(textRaw, exclude);
   const g = text.match(/\bguarantee(d|s)?\b/i);
   if (g && !/(no one can|nobody can|cannot|can't|can not|not) guarantee/i.test(text)) {
     flags.push({ code: "language_guarantee", message: `${where}: uses "guarantee"`, severity: "block" });
@@ -248,10 +284,18 @@ export async function verifyTeaser(input: {
     flags.push({ code: "fewer_than_three_findings", message: `only ${data.findings.length} finding(s) survived verification`, severity: "block" });
   }
   const teaserText = [data.summary.join(" "), ...data.findings.map((f) => f.text)].join("\n");
-  flags.push(...scanLanguage(teaserText, "report"));
+  // Names and quotes that come from stored data are not our wording: the
+  // clinic's name, the clinics the answers named (already checked against the
+  // stored answers above), the patient questions, and quotes from stored pages.
+  const [own] = await sql<{ name: string; site_name: string | null }[]>`select name, site_name from clinics where id=${s.clinic_id}`;
+  const exclude: ScanExclusions = {
+    names: [data.clinic.name, own?.name ?? "", own?.site_name ?? "", ...data.rows.flatMap((r) => r.namedInstead)],
+    quoted: [...data.rows.map((r) => r.question), ...data.findings.flatMap((f) => f.evidence.map((e) => e.quote ?? ""))],
+  };
+  flags.push(...scanLanguage(teaserText, "report", exclude));
   // the email body is rebuilt from the surviving findings by the caller; scan what we have
   const emailMain = draft.bodyText.split("\n--\n")[0];
-  flags.push(...scanLanguage(draft.subject + "\n" + emailMain, "email"));
+  flags.push(...scanLanguage(draft.subject + "\n" + emailMain, "email", exclude));
   const reviewNumber = /\b\d+(\.\d)?\s*(stars?|reviews?|ratings?)\b|\brated \d/i;
   if (reviewNumber.test(draft.subject + "\n" + emailMain) || reviewNumber.test(teaserText)) {
     flags.push({ code: "review_number_stored", message: "review numbers may only appear in the live web table (Google Maps terms), not in the stored report or email", severity: "block" });
@@ -274,7 +318,7 @@ export async function verifyTeaser(input: {
     data.findings.map((f, i) => ({ id: `finding-${i}`, where: "finding" as const, claim: f.text, evidence: f.evidence, verified: true })),
   );
   draft = { ...draft };
-  return { data, draft, flags, removed, passed: !flags.some((f) => f.severity === "block"), usage, costUsd };
+  return { data, draft, flags, removed, passed: !flags.some((f) => f.severity === "block"), exclude, usage, costUsd };
 }
 
 /** Resolve every claim's evidence into text the model can read. */
@@ -299,7 +343,12 @@ async function claimsWithEvidence(data: TeaserData, draft: Draft): Promise<{ id:
   out.push({
     id: "summary-1",
     claim: data.summary[1],
-    evidence: `[audit] pages read: ${data.pagesRead}; confirmed gaps are the stored findings below.\n${data.findings.map((f) => "- " + f.text).join("\n")}`,
+    // The counts come from the stored audit and site test, not from the three
+    // findings shown: say so, or the verifier compares "14 gaps" with 3 findings.
+    evidence:
+      `[stored counts, computed from the database] ${data.claims.find((c) => c.id === "summary-1")?.evidence[0]?.label ?? `${data.pagesRead} pages`}. ` +
+      `The audit and the site test read different numbers of pages; the sentence uses the larger. The gap count is the number of failed checks in both; ` +
+      `only the three most concrete are shown as findings, so fewer findings than gaps is expected:\n${data.findings.map((f) => "- " + f.text).join("\n")}`,
   });
   for (const r of data.rows) {
     out.push({
@@ -310,7 +359,14 @@ async function claimsWithEvidence(data: TeaserData, draft: Draft): Promise<{ id:
   }
   data.findings.forEach((f, i) => out.push({ id: `finding-${i}`, claim: f.text, evidence: render(f.evidence) }));
   for (const c of draft.claims.filter((x) => x.id === "email-result")) {
-    out.push({ id: c.id, claim: c.claim, evidence: data.rows.map((r) => `Q${r.questionIndex + 1}: ${r.status}; recommended: ${r.namedInstead.join(", ")}`).join("\n") });
+    const tally = new Map<string, number>();
+    for (const r of data.rows) for (const n of r.namedInstead) tally.set(n, (tally.get(n) ?? 0) + 1);
+    const counts = [...tally.entries()].sort((a, b) => b[1] - a[1]).map(([n, k]) => `${n}: ${k}`).join("; ");
+    out.push({
+      id: c.id,
+      claim: c.claim,
+      evidence: data.rows.map((r) => `Q${r.questionIndex + 1}: ${r.status}; recommended: ${r.namedInstead.join(", ")}`).join("\n") + `\nTimes each clinic was recommended: ${counts}`,
+    });
   }
   return out;
 }

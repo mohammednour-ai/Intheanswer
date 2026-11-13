@@ -13,8 +13,22 @@ import { env } from "../../env";
 /**
  * Step 4: audit the clinic's site and store every check with evidence.
  * Waits until the city's test run (step 3) has finished, because the
- * directory check uses the sources the assistant cited.
+ * directory check uses the sources the assistant cited. If that test job is
+ * dead the wait ends: the clinic is parked with the reason.
+ *
+ * A clinic that was suppressed, marked do-not-contact or became a customer
+ * while the audit was queued or running is left exactly as it is.
  */
+
+/** Statuses an audit must never overwrite. */
+const PROTECTED_STATUSES = ["suppressed", "do_not_contact", "customer"];
+
+/** The test_city job for a run, by its idempotency key. */
+export async function testJobState(sectorId: number, cityId: number, runLabel: string) {
+  const [j] = await db()<{ status: string; last_error: string | null }[]>`
+    select status::text, last_error from jobs where idempotency_key=${`test:${sectorId}:${cityId}:${runLabel}`}`;
+  return j ?? null;
+}
 
 export async function findTestRun(sectorId: number, cityId: number, runLabel: string) {
   const [r] = await db()<{ id: string; finished_at: Date | null }[]>`
@@ -27,16 +41,28 @@ export async function findTestRun(sectorId: number, cityId: number, runLabel: st
 async function handleAudit(ctx: JobContext) {
   const { clinicId, runLabel } = ctx.job.payload as { clinicId: string; runLabel: string };
   const sql = db();
-  const [c] = await sql<{ id: string; name: string; website: string; sector_id: number; city_id: number; city: string; sector_slug: string }[]>`
-    select c.id, c.name, c.website, c.sector_id, c.city_id, ci.name as city, s.slug as sector_slug
+  const [c] = await sql<{ id: string; name: string; website: string; sector_id: number; city_id: number; city: string; sector_slug: string; status: string }[]>`
+    select c.id, c.name, c.website, c.sector_id, c.city_id, ci.name as city, s.slug as sector_slug, c.status::text
     from clinics c join cities ci on ci.id=c.city_id join sectors s on s.id=c.sector_id where c.id=${clinicId}`;
   if (!c) throw new PermanentJobError("clinic not found");
+  if (PROTECTED_STATUSES.includes(c.status)) return { skipped: `clinic is ${c.status}` };
   const run = await findTestRun(c.sector_id, c.city_id, runLabel);
-  if (!run || !run.finished_at) throw new DeferJob(120, "waiting for the city test run");
+  if (!run || !run.finished_at) {
+    const job = await testJobState(c.sector_id, c.city_id, runLabel);
+    if (job?.status === "dead" || job?.status === "cancelled") {
+      const reason = `the AI test for ${c.city} did not complete (${(job.last_error ?? "test job " + job.status).slice(0, 300)})`;
+      await sql`update clinics set status='parked', status_reason=${reason}, updated_at=now()
+                where id=${clinicId} and status::text <> all(${PROTECTED_STATUSES})`;
+      await ctx.log("parked: the city test job is dead", { runLabel, error: job.last_error }, "warn");
+      return { parked: reason };
+    }
+    throw new DeferJob(120, "waiting for the city test run");
+  }
 
   const site = await readSite(c.website);
   if (!site.home) {
-    await sql`update clinics set status='parked', status_reason='site could not be read for the audit', updated_at=now() where id=${clinicId}`;
+    await sql`update clinics set status='parked', status_reason='site could not be read for the audit', updated_at=now()
+              where id=${clinicId} and status::text <> all(${PROTECTED_STATUSES})`;
     return { parked: "site unreadable" };
   }
   const [primary] = await sql<{ email: string; source_url: string; on_own_domain: boolean }[]>`
@@ -71,6 +97,9 @@ async function handleAudit(ctx: JobContext) {
   checks.push(dir.outcome);
 
   const audit = await sql.begin(async (tx) => {
+    // The audit took minutes: the clinic may have unsubscribed or bought since it started.
+    const [now] = await tx<{ status: string }[]>`select status::text from clinics where id=${clinicId} for update`;
+    if (!now || PROTECTED_STATUSES.includes(now.status)) return null;
     await tx`update audits set superseded = true where clinic_id=${clinicId}`;
     const [a] = await tx<{ id: string }[]>`
       insert into audits (clinic_id, pages_read) values (${clinicId}, ${site.pages.map((p) => p.url)}) returning id`;
@@ -86,6 +115,10 @@ async function handleAudit(ctx: JobContext) {
                status='audited', updated_at=now() where id=${clinicId}`;
     return a;
   });
+  if (!audit) {
+    await ctx.log("audit not stored: the clinic's status changed while it ran", undefined, "warn");
+    return { skipped: "clinic was suppressed, marked do-not-contact or became a customer during the audit" };
+  }
   await ctx.enqueue("score_clinic", `score:${clinicId}:${audit.id}`, { clinicId, auditId: audit.id, testRunId: run.id, runLabel });
   if (env().GOOGLE_PLACES_API_KEY) {
     await ctx.enqueue("review_lookup", `reviewlookup:${clinicId}:${run.id}`, { clinicId, testRunId: run.id }, { maxAttempts: 2 });
@@ -99,3 +132,5 @@ async function handleAudit(ctx: JobContext) {
 }
 
 register("audit_clinic", handleAudit);
+
+export { handleAudit };

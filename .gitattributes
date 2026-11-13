@@ -1,0 +1,4 @@
+# Shell scripts and SQL must keep LF endings on every platform
+# (bash and psql read them inside Linux containers and on Supabase).
+*.sh  text eol=lf
+*.sql text eol=lf

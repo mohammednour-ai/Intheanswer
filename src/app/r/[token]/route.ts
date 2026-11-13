@@ -4,9 +4,13 @@ import { currentOwner } from "@/lib/auth";
 import { sha256 } from "@/lib/tokens";
 import { LIVE_REVIEWS_MARKER, renderLiveReviewTable } from "@/lib/reviews/liveTable";
 
+import { isAutomatedFetch } from "@/lib/site/viewers";
+
 /**
- * Private report page at an unguessable URL. Views are counted unless the
- * owner is previewing. Unverified drafts are only visible to the owner.
+ * Private report page at an unguessable URL. A view is counted when a person
+ * opens it: not the owner, not a link scanner, crawler or prefetch, and at
+ * most once per browser per hour. Unverified drafts are only visible to the
+ * owner.
  */
 export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   const { token } = await ctx.params;
@@ -16,12 +20,27 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
     select r.id, r.html, r.data, r.superseded, r.clinic_id, c.place_id, c.city_id
     from reports r left join clinics c on c.id = r.clinic_id where r.token=${token}`;
   if (!r) return new Response("Not found", { status: 404 });
-  const owner = req.nextUrl.searchParams.get("preview") === "owner" ? await currentOwner() : null;
+  // The owner is recognised with or without ?preview=owner (a signed-in owner
+  // opening the plain link must not count as the clinic reading its report).
+  // Only looked up when the request carries cookies, so a clinic's view costs nothing extra.
+  const mayBeOwner = req.nextUrl.searchParams.get("preview") === "owner" || req.cookies.getAll().length > 0;
+  const owner = mayBeOwner ? await currentOwner().catch(() => null) : null;
   if (!owner && r.data?.verified === false) return new Response("Not found", { status: 404 });
-  if (!owner) {
-    await sql`insert into report_views (report_id, ua_hash) values (${r.id}, ${sha256(req.headers.get("user-agent") ?? "").slice(0, 16)})`;
-    await sql`update reports set view_count = view_count + 1, last_viewed_at = now(),
-              first_viewed_at = coalesce(first_viewed_at, now()) where id=${r.id}`;
+  const ua = req.headers.get("user-agent") ?? "";
+  if (!owner && !isAutomatedFetch(ua, req.headers)) {
+    // One view per report and browser per hour: a reload or a mail client that
+    // opens the link twice is one reading, not several.
+    const uaHash = sha256(ua).slice(0, 16);
+    const counted = await sql`
+      insert into report_views (report_id, ua_hash)
+      select ${r.id}, ${uaHash}
+      where not exists (
+        select 1 from report_views where report_id=${r.id} and ua_hash=${uaHash} and viewed_at > now() - interval '1 hour')
+      returning id`;
+    if (counted.length) {
+      await sql`update reports set view_count = view_count + 1, last_viewed_at = now(),
+                first_viewed_at = coalesce(first_viewed_at, now()) where id=${r.id}`;
+    }
   }
   // Live Google Maps ratings: fetched now, shown on the web page only, never stored.
   let html = r.html;

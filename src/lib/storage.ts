@@ -5,7 +5,8 @@ import { env } from "./env";
 
 /**
  * Private file storage for report PDFs. Supabase Storage (private bucket) in
- * production; a local ./output folder when Supabase is not configured.
+ * production; a local ./output folder when Supabase is not configured, in
+ * development and tests only (production refuses to write to local disk).
  */
 function supabaseAdmin() {
   const e = env();
@@ -19,6 +20,11 @@ export async function putFile(key: string, data: Buffer, contentType: string): P
     const { error } = await sb.storage.from(env().SUPABASE_STORAGE_BUCKET).upload(key, data, { contentType, upsert: true });
     if (error) throw new Error(`storage upload failed: ${error.message}`);
     return `supabase:${key}`;
+  }
+  // The local folder is for development only: on a serverless host the disk
+  // is temporary and not shared, so a report saved there would silently vanish.
+  if (env().NODE_ENV === "production") {
+    throw new Error("report storage is not configured: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (reports are not written to local disk in production)");
   }
   const file = path.join(process.cwd(), "output", key);
   await fs.mkdir(path.dirname(file), { recursive: true });

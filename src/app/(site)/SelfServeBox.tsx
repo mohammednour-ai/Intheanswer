@@ -35,8 +35,9 @@ export function SelfServeBox() {
         </div>
       </div>
       <div className={styles.hp} aria-hidden="true">
-        <label htmlFor="company">Leave this empty</label>
-        <input id="company" name="company" type="text" tabIndex={-1} autoComplete="off" />
+        {/* A trap for bots. The name must not look like a real field: browsers autofill "company". */}
+        <label htmlFor="ita-check">Leave this empty</label>
+        <input id="ita-check" name="ita_check_7q" type="text" tabIndex={-1} autoComplete="off" data-1p-ignore data-lpignore="true" defaultValue="" />
       </div>
       <button className="btn btn-primary" disabled={pending}>{pending ? "Sending" : "Send me the report"}</button>
       {state ? <p role="status" className={`pill ${state.ok ? "pill-ok" : "pill-bad"}`} style={{ whiteSpace: "normal" }}>{state.message}</p> : null}

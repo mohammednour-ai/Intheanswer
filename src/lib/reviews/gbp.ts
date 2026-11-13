@@ -66,29 +66,80 @@ export function locationMatchesDomain(websiteUri: string | undefined, domain: st
   }
 }
 
+/** A connect link works for this long after it was created (or re-created) in the portal. */
+export const CONNECT_LINK_DAYS = 14;
+
+/** Give a token back to Google: we must not keep access we have no use for. Best effort. */
+export async function revokeToken(tok: string): Promise<boolean> {
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/revoke", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ token: tok }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Why a connect link cannot be used, or null when it can. */
+export function connectLinkProblem(conn: { status: string; link_age_days: number } | undefined): string | null {
+  if (!conn) return "unknown connection link";
+  if (conn.status === "connected") return "this Business Profile is already connected; ask for a new link to connect again";
+  if (conn.status === "revoked") return "this connection link is no longer valid";
+  if (conn.link_age_days > CONNECT_LINK_DAYS) return `this connection link has expired (links are valid for ${CONNECT_LINK_DAYS} days); ask for a new one`;
+  return null;
+}
+
 export async function completeConnection(connectToken: string, code: string): Promise<{ clinicId: string; location: string | null }> {
   const sql = db();
-  const [conn] = await sql<{ clinic_id: string; domain: string | null }[]>`
-    select g.clinic_id, c.domain from gbp_connections g join clinics c on c.id=g.clinic_id where g.connect_token=${connectToken}`;
-  if (!conn) throw new Error("unknown connection link");
+  const [conn] = await sql<{ clinic_id: string; domain: string | null; status: string; link_age_days: number }[]>`
+    select g.clinic_id, c.domain, g.status, extract(epoch from (now() - g.link_created_at)) / 86400.0 as link_age_days
+    from gbp_connections g join clinics c on c.id=g.clinic_id where g.connect_token=${connectToken}`;
+  // An already connected row is never replaced through an old link, and a link does not live forever.
+  const problem = connectLinkProblem(conn && { status: conn.status, link_age_days: Number(conn.link_age_days) });
+  if (problem || !conn) throw new Error(problem ?? "unknown connection link");
   const t = await token({ grant_type: "authorization_code", code, redirect_uri: redirectUri() });
-  if (!t.refresh_token) throw new Error("Google did not return a refresh token");
-  const accounts = await gget<{ accounts?: { name: string }[] }>("https://mybusinessaccountmanagement.googleapis.com/v1/accounts", t.access_token);
-  let location: string | null = null;
-  for (const a of accounts.accounts ?? []) {
-    const locs = await gget<{ locations?: { name: string; websiteUri?: string }[] }>(
-      `https://mybusinessbusinessinformation.googleapis.com/v1/${a.name}/locations?readMask=name,title,websiteUri&pageSize=100`,
-      t.access_token,
-    );
-    const match = (locs.locations ?? []).find((l) => locationMatchesDomain(l.websiteUri, conn.domain));
-    if (match) {
-      location = `${a.name}/${match.name}`; // accounts/{a}/locations/{l}
-      break;
-    }
+  if (!t.refresh_token) {
+    await revokeToken(t.access_token);
+    throw new Error("Google did not return a refresh token");
   }
-  await sql`update gbp_connections set refresh_token_enc=${seal(t.refresh_token)}, location_name=${location},
-            status=${location ? "connected" : "error"}, connected_at=now(), last_error=${location ? null : "no location on this Google account lists the clinic's website"}
-            where connect_token=${connectToken}`;
+  let location: string | null = null;
+  try {
+    const accounts = await gget<{ accounts?: { name: string }[] }>("https://mybusinessaccountmanagement.googleapis.com/v1/accounts", t.access_token);
+    for (const a of accounts.accounts ?? []) {
+      const locs = await gget<{ locations?: { name: string; websiteUri?: string }[] }>(
+        `https://mybusinessbusinessinformation.googleapis.com/v1/${a.name}/locations?readMask=name,title,websiteUri&pageSize=100`,
+        t.access_token,
+      );
+      const match = (locs.locations ?? []).find((l) => locationMatchesDomain(l.websiteUri, conn.domain));
+      if (match) {
+        location = `${a.name}/${match.name}`; // accounts/{a}/locations/{l}
+        break;
+      }
+    }
+  } catch (e) {
+    await revokeToken(t.refresh_token); // nothing was stored: do not leave a live grant behind
+    throw e;
+  }
+  if (!location) {
+    // The Google account that signed in does not manage this clinic's profile:
+    // its token is given back to Google and never stored.
+    const revoked = await revokeToken(t.refresh_token);
+    await sql`update gbp_connections set refresh_token_enc=null, location_name=null, status='error', connected_at=null,
+              last_error=${"no location on this Google account lists the clinic's website" + (revoked ? "" : " (the token could not be revoked at Google; it was not stored)")}
+              where connect_token=${connectToken} and status <> 'connected'`;
+    return { clinicId: conn.clinic_id, location: null };
+  }
+  const done = await sql`update gbp_connections set refresh_token_enc=${seal(t.refresh_token)}, location_name=${location},
+            status='connected', connected_at=now(), last_error=null
+            where connect_token=${connectToken} and status <> 'connected' returning clinic_id`;
+  if (!done.length) {
+    // Connected by a parallel request in the meantime. Not revoked here:
+    // revoking would also end the grant the other request just stored.
+    throw new Error("this Business Profile is already connected");
+  }
   return { clinicId: conn.clinic_id, location };
 }
 

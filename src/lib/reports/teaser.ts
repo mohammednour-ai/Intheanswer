@@ -156,7 +156,10 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     rows,
     findings,
     pagesRead,
-    offers: { oneTimeUrl: `${base}/buy/${reportToken}/report`, monthlyUrl: `${base}/buy/${reportToken}/monthly`, minTerm: owner.minTerm },
+    offers: {
+      oneTimeUrl: `${base}/buy/${reportToken}/report`, reportsUrl: `${base}/buy/${reportToken}/reports`, monthlyUrl: `${base}/buy/${reportToken}/monthly`,
+      minTerm: owner.minTerm, reportsMinTerm: owner.reportsMinTerm,
+    },
     limits: LIMITS_LINE(run.assistant, servedModels.join(", "), date, c.city, s.total),
     findingsTotal: gaps,
     siteRunId: site.runId,

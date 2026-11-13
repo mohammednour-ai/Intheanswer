@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
-import { env } from "./env";
+import { appSecret } from "./env";
 
 /** AES-256-GCM for small secrets at rest (OAuth refresh tokens), keyed from APP_SECRET. */
 function key() {
-  return crypto.createHash("sha256").update("secret-box:" + env().APP_SECRET).digest();
+  return crypto.createHash("sha256").update("secret-box:" + appSecret()).digest();
 }
 
 export function seal(plain: string): string {

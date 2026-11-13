@@ -14,7 +14,8 @@
 .step { background: var(--soft); border-radius: 10px; padding: 18px; }
 .num { font-family: var(--font-head); font-weight: 700; font-size: 1.5rem; color: var(--blue); }
 .offers { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: stretch; }
-@media (min-width: 800px) { .offers { grid-template-columns: 5fr 7fr; } }
+@media (min-width: 720px) { .offers { grid-template-columns: 1fr 1fr; } .offerMain { grid-column: 1 / -1; } }
+@media (min-width: 1020px) { .offers { grid-template-columns: 4fr 4fr 5fr; } .offerMain { grid-column: auto; } }
 .offer { border: 1.5px solid #c9d1dc; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 8px; }
 .offerMain { background: var(--blue); border-color: var(--blue); color: #fff; }
 .offerMain a { color: #fff; }

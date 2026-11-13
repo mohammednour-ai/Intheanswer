@@ -4,6 +4,9 @@ import { z } from "zod";
  * All configuration comes from environment variables (see .env.example).
  * Owner details are required for any live send; dry runs show placeholders.
  */
+/** Placeholder secret for local development. Never accepted in production (see appSecret). */
+export const DEV_APP_SECRET = "dev-only-secret-change-me";
+
 const schema = z.object({
   NODE_ENV: z.string().default("development"),
   APP_URL: z.string().url().default("http://localhost:3000"),
@@ -26,7 +29,8 @@ const schema = z.object({
   OWNER_MAILING_ADDRESS: z.string().default("[MAILING ADDRESS]"),
   OWNER_PHONE: z.string().default("[PHONE]"),
   OWNER_CONTACT_EMAIL: z.string().default("hello@intheanswer.ca"),
-  MONTHLY_MIN_TERM_MONTHS: z.string().default("[MINIMUM TERM]"),
+  MONTHLY_MIN_TERM_MONTHS: z.string().default("[MINIMUM TERM]"), // full service plan
+  REPORTS_MIN_TERM_MONTHS: z.string().default("3"),              // monthly reports plan
 
   // Sending
   MAIL_FROM: z.string().default("hello@mail.intheanswer.ca"),
@@ -55,9 +59,12 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_ONE_TIME: z.string().optional(),
   STRIPE_PRICE_MONTHLY: z.string().optional(),
+  STRIPE_PRICE_REPORTS_MONTHLY: z.string().optional(), // 50 CAD / month
+  STRIPE_PRICE_REPORTS_FIRST: z.string().optional(),   // 100 CAD one time, added to the first month (150 in total)
+  STRIPE_TAX_RATE_ID: z.string().optional(), // HST tax rate (txr_...), added to every checkout when set
 
   // Signing secret for unsubscribe links, report tokens, cron calls.
-  APP_SECRET: z.string().default("dev-only-secret-change-me"),
+  APP_SECRET: z.string().default(DEV_APP_SECRET),
   CRON_SECRET: z.string().optional(),
 
   // Chrome for PDF rendering (local). On Vercel @sparticuz/chromium is used.
@@ -79,6 +86,22 @@ export function env(): Env {
   return cached;
 }
 
+/**
+ * The signing secret, for use at request time (unsubscribe links, sealed
+ * tokens, hashed IPs). In production the development default or anything
+ * under 32 characters is refused: links signed with a known secret could be
+ * forged. Checked here and not at module load because `next build` also runs
+ * with NODE_ENV=production and must succeed without secrets.
+ */
+export function appSecret(): string {
+  const e = env();
+  const building = process.env.NEXT_PHASE === "phase-production-build";
+  if (e.NODE_ENV === "production" && !building && (e.APP_SECRET === DEV_APP_SECRET || e.APP_SECRET.length < 32)) {
+    throw new Error("APP_SECRET must be set to a random value of at least 32 characters in production");
+  }
+  return e.APP_SECRET;
+}
+
 /** Test helper: reset cached env after mutating process.env. */
 export function resetEnvForTests() {
   cached = null;
@@ -90,6 +113,12 @@ export function isEnvDryRun(): boolean {
 
 export const OWNER_PLACEHOLDER_RE = /\[[A-Z][A-Z ,.]+\]/;
 
+/** "12" reads as "12 months"; anything else (a placeholder, "12 months") is shown as written. */
+function termLabel(raw: string): string {
+  const t = raw.trim();
+  return /^\d{1,2}$/.test(t) ? (t === "1" ? "1 month" : `${t} months`) : t;
+}
+
 /** Owner details that must be filled before any live send. */
 export function ownerDetails() {
   const e = env();
@@ -99,7 +128,10 @@ export function ownerDetails() {
     mailingAddress: e.OWNER_MAILING_ADDRESS,
     phone: e.OWNER_PHONE,
     email: e.OWNER_CONTACT_EMAIL,
-    minTerm: e.MONTHLY_MIN_TERM_MONTHS,
+    minTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS),
+    reportsMinTerm: termLabel(e.REPORTS_MIN_TERM_MONTHS),
+    /** The full service term as an adjective: "12-month" (a placeholder is shown as written). */
+    contractTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS).replace(/^(\d+) months?$/, "$1-month"),
   };
 }
 

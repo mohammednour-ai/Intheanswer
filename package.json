@@ -9,9 +9,9 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
-    "db:local": "scripts/local-db.sh",
-    "worker": "tsx scripts/worker.ts",
-    "pipeline": "tsx scripts/pipeline.ts"
+    "db:local": "tsx scripts/rebuild-db.ts",
+    "worker": "tsx --env-file-if-exists=.env.local scripts/worker.ts",
+    "pipeline": "tsx --env-file-if-exists=.env.local scripts/pipeline.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/auth";
 import Link from "next/link";
 import { db } from "@/lib/db";
 
@@ -7,6 +8,7 @@ const STATUS: Record<string, string> = {
 };
 
 export default async function PagesScreen() {
+  await requireOwner();
   const rows = await db()`
     select p.id, p.title, p.status::text, p.kind, p.target_question, p.live_url, p.planned_month, p.latest_test_status::text,
            p.latest_test_at, coalesce(c.site_name, c.name) as clinic, c.id as clinic_id,

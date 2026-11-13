@@ -72,7 +72,35 @@ function anthropic(): Anthropic {
   return client;
 }
 
-export class ClaudeRefusalError extends Error {}
+/** What a failed call still cost: the tokens are billed whether or not the answer is usable. */
+export interface CallSpend {
+  usage: UsageLike;
+  costUsd: number;
+  servedModel: string;
+}
+
+/** The request was declined (stop_reason "refusal"), by the model and by the fallback if one ran. */
+export class ClaudeRefusalError extends Error {
+  constructor(message: string, public readonly spend: CallSpend | null = null) {
+    super(message);
+    this.name = "ClaudeRefusalError";
+  }
+}
+
+/**
+ * The call returned, but not a complete answer: cut off at max_tokens or the
+ * context window, a paused turn that never resumed to an end, or no text.
+ * Such a response must never be stored or read as an answer.
+ */
+export class ClaudeIncompleteError extends Error {
+  constructor(message: string, public readonly reason: string, public readonly spend: CallSpend | null = null) {
+    super(message);
+    this.name = "ClaudeIncompleteError";
+  }
+}
+
+/** Stop reasons that mean the model finished what it had to say. */
+const COMPLETE_STOP_REASONS = new Set(["end_turn", "stop_sequence"]);
 
 // ---------------------------------------------------------------------------
 // Patient question with web search
@@ -150,26 +178,43 @@ export async function askPatientQuestion(question: string, city: string): Promis
     let servedModel = model;
     let stopReason: string | null = null;
     for (let turn = 0; turn < 5; turn++) {
-      const res = await anthropic().beta.messages.create({
-        model,
-        max_tokens: 16000,
-        output_config: { effort },
-        tools,
-        messages,
-        betas: [FALLBACK_BETA],
-        fallbacks: "default",
-      });
+      const res = await anthropic().beta.messages
+        .create({
+          model,
+          max_tokens: 16000,
+          output_config: { effort },
+          tools,
+          messages,
+          betas: [FALLBACK_BETA],
+          fallbacks: "default",
+        })
+        .catch((e: unknown) => {
+          // a resume failed after earlier turns of this answer were billed: keep what they cost
+          if (turn === 0) throw e;
+          throw new ClaudeIncompleteError(`answer not complete (${e instanceof Error ? e.message : String(e)})`.slice(0, 300), "error_after_pause", {
+            usage, costUsd: costUsd(servedModel, usage), servedModel,
+          });
+        });
       usage = addUsage(usage, res.usage as UsageLike);
       servedModel = res.model;
       stopReason = res.stop_reason;
       allBlocks = allBlocks.concat(res.content as unknown as Block[]);
-      if (res.stop_reason === "refusal") throw new ClaudeRefusalError(`refused: ${JSON.stringify(res.stop_details ?? null)}`);
+      if (res.stop_reason === "refusal") {
+        throw new ClaudeRefusalError(`refused: ${JSON.stringify(res.stop_details ?? null)}`, { usage, costUsd: costUsd(servedModel, usage), servedModel });
+      }
       if (res.stop_reason !== "pause_turn") break;
       // resume: send the assistant content back unchanged, no extra user message
       if (turn === 0) messages.push({ role: "assistant", content: res.content as never });
       else messages[messages.length - 1] = { role: "assistant", content: allBlocks as never };
     }
+    const spend: CallSpend = { usage, costUsd: costUsd(servedModel, usage), servedModel };
+    // Anything but a finished turn is not an answer: max_tokens, a context
+    // window overflow, or a pause_turn still unresolved after the resumes above.
+    if (!stopReason || !COMPLETE_STOP_REASONS.has(stopReason)) {
+      throw new ClaudeIncompleteError(`answer not complete (stop_reason ${stopReason ?? "none"})`, stopReason ?? "none", spend);
+    }
     const ex = extractAnswer(allBlocks);
+    if (!ex.text) throw new ClaudeIncompleteError("answer has no text", "empty", spend);
     return {
       ...ex,
       requestedModel: model,
@@ -211,10 +256,13 @@ export async function structured<S extends z.ZodType>(opts: {
       output_config: { effort, format: zodOutputFormat(opts.schema) },
       messages: [{ role: "user", content: opts.user }],
     });
-    if (res.stop_reason === "refusal") throw new ClaudeRefusalError(`refused during ${opts.purpose}`);
-    if (res.stop_reason === "max_tokens") throw new Error(`${opts.purpose}: output truncated (max_tokens)`);
-    if (!res.parsed_output) throw new Error(`${opts.purpose}: no parsed output`);
     const usage = res.usage as unknown as UsageLike;
+    const spend: CallSpend = { usage, costUsd: costUsd(res.model, usage), servedModel: res.model };
+    if (res.stop_reason === "refusal") throw new ClaudeRefusalError(`refused during ${opts.purpose}`, spend);
+    if (res.stop_reason === "max_tokens" || res.stop_reason === "model_context_window_exceeded" || res.stop_reason === "pause_turn") {
+      throw new ClaudeIncompleteError(`${opts.purpose}: output not complete (${res.stop_reason})`, res.stop_reason, spend);
+    }
+    if (!res.parsed_output) throw new ClaudeIncompleteError(`${opts.purpose}: no parsed output`, "no_parsed_output", spend);
     return { data: res.parsed_output as z.infer<S>, usage, costUsd: costUsd(res.model, usage), model: res.model };
   });
 }
@@ -234,11 +282,15 @@ export interface FetchRead {
   docs: FetchedDoc[];
   usage: UsageLike;
   costUsd: number;
+  /** Set when the turn did not finish (refusal, truncation, pause): text and docs are empty and nothing may be concluded. */
+  incomplete?: string;
 }
 
 /**
  * Let Claude fetch the given URLs (only those domains) and answer. The fetched
- * documents are returned so every quote can be checked against them.
+ * documents are returned so every quote can be checked against them. A turn
+ * that was refused or cut off returns `incomplete` with no text and no
+ * documents (the cost is still returned): callers report "could not verify".
  */
 export async function readWithWebFetch(prompt: string, urls: string[]): Promise<FetchRead> {
   const model = env().CLAUDE_MODEL;
@@ -251,6 +303,10 @@ export async function readWithWebFetch(prompt: string, urls: string[]): Promise<
       tools: [{ type: "web_fetch_20260209", name: "web_fetch", max_uses: Math.min(10, urls.length + 2), allowed_domains: domains }],
       messages: [{ role: "user", content: `${prompt}\n\nURLs:\n${urls.join("\n")}` }],
     });
+    const usage = res.usage as unknown as UsageLike;
+    if (res.stop_reason !== "end_turn" && res.stop_reason !== "stop_sequence") {
+      return { text: "", docs: [], usage, costUsd: costUsd(res.model, usage), incomplete: res.stop_reason ?? "none" };
+    }
     const docs: FetchedDoc[] = [];
     let text = "";
     for (const b of res.content as unknown as Block[]) {
@@ -262,7 +318,6 @@ export async function readWithWebFetch(prompt: string, urls: string[]): Promise<
         }
       }
     }
-    const usage = res.usage as unknown as UsageLike;
     return { text, docs, usage, costUsd: costUsd(res.model, usage) };
   });
 }

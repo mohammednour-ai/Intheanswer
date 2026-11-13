@@ -53,7 +53,8 @@ export interface TeaserData {
   findingsTotal: number;
   /** Site test run the site findings come from (for the verification gate). */
   siteRunId?: string | null;
-  offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string };
+  /** reportsUrl and reportsMinTerm are missing on teasers stored before the monthly reports plan existed. */
+  offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string; reportsUrl?: string; reportsMinTerm?: string };
   limits: string;
   owner: OwnerFooter;
   claims: Claim[];

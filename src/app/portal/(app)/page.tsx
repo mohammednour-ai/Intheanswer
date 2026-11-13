@@ -1,8 +1,10 @@
+import { requireOwner } from "@/lib/auth";
 import { listMessages } from "@/lib/portal/queries";
 import { MessageList } from "./MessageList";
 import { BulkApprove } from "./BulkApprove";
 
 export default async function QueuePage() {
+  await requireOwner();
   const items = await listMessages(["pending_review"]);
   const zeroFlag = items.filter((m) => !Array.isArray(m.flags) || m.flags.length === 0).map((m) => m.id);
   return (

@@ -1,8 +1,10 @@
+import { requireOwner } from "@/lib/auth";
 import { overview } from "@/lib/portal/queries";
 
 const usd = (n: number) => `$${n.toFixed(2)}`;
 
 export default async function OverviewPage() {
+  await requireOwner();
   const o = await overview();
   return (
     <section className="stack">

@@ -25,10 +25,13 @@ export interface AppSettings {
   follow_up_business_days: number;
   retest_after_purchase_days: number;
   dns_verified: boolean;
+  dns_checked_at: Date | null;
+  dns_detail: unknown;
   digest_hour_local: number;
   pages_per_month: number;
   crawl_page_cap: number;
   api_cache_days: number;
+  discovery_targets_per_day: number;
 }
 
 export async function getSettings(): Promise<AppSettings> {

@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getSettings, getModes, MODE_TYPES, effectiveDryRun } from "@/lib/settings";
 import { warmupCapForDate } from "@/lib/sending/rules";
@@ -12,11 +13,13 @@ import {
   saveCityAction,
   toggleTargetAction,
   saveQuestionsAction,
-  saveSectorAction,
-} from "./actions";
+  saveSectorAction, checkDnsAction } from "./actions";
+import type { DnsCheck } from "@/lib/sending/dns";
 
 export default async function SettingsPage() {
+  await requireOwner();
   const s = await getSettings();
+  const dns = s.dns_detail as DnsCheck | null;
   const modes = await getModes();
   const dry = await effectiveDryRun(s);
   const owner = ownerDetailsComplete();
@@ -107,6 +110,19 @@ export default async function SettingsPage() {
           Warm-up cap today: <strong>{capToday}</strong> per day (starts at {s.warmup_start_per_day}, +{s.warmup_step_per_week} per week, ceiling {s.warmup_ceiling}).
           DNS verified: <strong>{s.dns_verified ? "yes" : "no (sending refused)"}</strong>.
         </p>
+        {dns ? (
+          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+            <li>SPF: {dns.spf.ok ? "found" : "missing"} ({dns.spf.detail})</li>
+            <li>DKIM: {dns.dkim.ok ? "found" : "missing"} ({dns.dkim.detail})</li>
+            <li>DMARC: {dns.dmarc.ok ? "found" : "missing"} ({dns.dmarc.detail})</li>
+            <li className="muted">Checked {new Date(dns.checkedAt).toLocaleString("en-CA", { timeZone: "America/Toronto" })} for {dns.domain}</li>
+          </ul>
+        ) : (
+          <p className="small muted">The sending domain has not been checked yet.</p>
+        )}
+        <form action={checkDnsAction}>
+          <button className="btn">Check DNS now</button>
+        </form>
         <form action={saveSendingAction} className="stack">
           <div className="row">
             <div>
@@ -140,7 +156,7 @@ export default async function SettingsPage() {
           </div>
           <div className="row">
             <div>
-              <label htmlFor="ppm">Monthly plan: new pages per month</label>
+              <label htmlFor="ppm">Full service plan: new pages per month</label>
               <input id="ppm" name="pages_per_month" type="number" min={0} max={20} defaultValue={s.pages_per_month} />
             </div>
             <div>

@@ -6,6 +6,7 @@
 import "../src/lib/jobs/register";
 import { runWorkerOnce } from "../src/lib/jobs/worker";
 import { closeDb } from "../src/lib/db";
+import { scheduleTickSafely } from "../src/lib/schedule/tick";
 
 const args = process.argv.slice(2);
 const once = args.includes("--once");
@@ -14,6 +15,7 @@ const kinds = kindsArg ? kindsArg.split("=")[1].split(",") : undefined;
 
 async function main() {
   for (;;) {
+    await scheduleTickSafely(); // start whatever is due, as the cron route does
     const r = await runWorkerOnce({ limit: 10, kinds });
     if (r.claimed) console.log(new Date().toISOString(), r);
     if (once && r.claimed === 0) break;

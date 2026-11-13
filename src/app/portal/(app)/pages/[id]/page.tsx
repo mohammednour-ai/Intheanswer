@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/auth";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
@@ -6,6 +7,7 @@ import type { PageDraft } from "@/lib/pages/draft";
 import { generateAction, approveAction, sendAction, liveAction, rejectAction, editAction } from "../actions";
 
 export default async function PageDetail(props: PageProps<"/portal/pages/[id]">) {
+  await requireOwner();
   const { id } = await props.params;
   const sp = await props.searchParams;
   const sql = db();

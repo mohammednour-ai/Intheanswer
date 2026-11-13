@@ -25,7 +25,7 @@ function orgJsonLd() {
     areaServed: { "@type": "AdministrativeArea", name: "Ontario, Canada" },
     founder: { "@type": "Person", name: o.name },
     knowsLanguage: "en",
-    priceRange: "200 CAD one time, or 200 CAD per month",
+    priceRange: "200 CAD one time, or from 50 CAD per month",
     openingHours: "Mo-Fr 09:00-17:00",
     description:
       "In The Answer tests whether AI assistants name an Ontario clinic when patients ask for a recommendation, reports what was found on the clinic's website, and fixes it.",

@@ -60,14 +60,15 @@ export interface SendCandidate {
  * All checks before a send. Order matters: absolute blocks first, then
  * timing/caps (defers).
  */
-export async function checkSend(m: SendCandidate, s: AppSettings, now = new Date()): Promise<SendCheck> {
+export async function checkSend(m: SendCandidate, s: AppSettings, now = new Date(), opts: { dryRun?: boolean } = {}): Promise<SendCheck> {
   const sql = db();
   const isCold = COLD_TYPES.has(m.type);
   const transactionalAlways = m.type === "payment_receipt" || m.type === "unsubscribe_confirmation";
 
   if (s.kill_switch && !transactionalAlways) return { ok: false, outcome: "defer", reason: "kill switch on", retryAt: new Date(now.getTime() + 3600e3) };
   if (s.auto_paused && !transactionalAlways) return { ok: false, outcome: "defer", reason: `auto-paused: ${s.auto_pause_reason}`, retryAt: new Date(now.getTime() + 3600e3) };
-  if (!s.dns_verified) return { ok: false, outcome: "defer", reason: "SPF/DKIM/DMARC not verified", retryAt: new Date(now.getTime() + 3600e3) };
+  // A dry run sends nothing, so the DNS gate does not apply to it.
+  if (!s.dns_verified && !opts.dryRun) return { ok: false, outcome: "defer", reason: "SPF/DKIM/DMARC not verified", retryAt: new Date(now.getTime() + 3600e3) };
 
   // Suppression applies to everything except the unsubscribe confirmation itself.
   if (m.type !== "unsubscribe_confirmation") {
@@ -96,13 +97,33 @@ export async function checkSend(m: SendCandidate, s: AppSettings, now = new Date
     const cap = warmupCapForDate(s, today);
     const [sent] = await sql<{ n: number }[]>`
       select count(*)::int as n from messages
-      where type in ('first_email','follow_up') and status='sent'
+      where type in ('first_email','follow_up') and status in ('sent','sending')
         and (sent_at at time zone 'America/Toronto')::date = ${today}::date`;
-    if (sent.n >= cap) return { ok: false, outcome: "defer", reason: `daily cap ${cap} reached`, retryAt: nextWindowStart(new Date(now.getTime() + 86400e3), s, true) };
+    if (sent.n >= cap) return { ok: false, outcome: "defer", reason: `daily cap ${cap} reached`, retryAt: nextWindowStart(startOfNextLocalDay(now), s) };
     const slot = nextSlot(now, s, cap, sent.n);
     if (slot.getTime() > now.getTime() + 30e3) return { ok: false, outcome: "defer", reason: "spreading sends across the day", retryAt: slot };
+    // Even when the day is behind schedule, cold emails never leave back to back.
+    const [last] = await sql<{ at: Date | null }[]>`
+      select max(sent_at) as at from messages where type in ('first_email','follow_up') and status in ('sent','sending')`;
+    const gapMs = minGapMs(s, cap);
+    if (last.at && now.getTime() - last.at.getTime() < gapMs) {
+      return { ok: false, outcome: "defer", reason: "spacing between sends", retryAt: new Date(last.at.getTime() + gapMs) };
+    }
   }
   return { ok: true, outcome: "send", reason: "all checks passed" };
+}
+
+/** 00:01 Toronto time on the day after `now`. */
+export function startOfNextLocalDay(now: Date): Date {
+  const noon = torontoToUtc(localDate(now), "12:00");
+  return torontoToUtc(localDate(new Date(noon.getTime() + 86400e3)), "00:01");
+}
+
+/** Smallest gap between two cold sends: half the day's even spacing, at least two minutes. */
+export function minGapMs(s: Pick<AppSettings, "send_window_start" | "send_window_end">, cap: number): number {
+  const day = "2026-01-05";
+  const span = torontoToUtc(day, s.send_window_end).getTime() - torontoToUtc(day, s.send_window_start).getTime();
+  return Math.max(120e3, cap > 0 ? span / cap / 2 : span);
 }
 
 export function nextWindowStart(from: Date, s: Pick<AppSettings, "send_window_start" | "send_window_end">, forceNextDay = false): Date {

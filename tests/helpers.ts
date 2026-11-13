@@ -6,7 +6,7 @@ export async function resetData() {
   await sql`truncate jobs, job_logs, cost_records, messages, message_events, send_audit_log, approval_log,
             suppressions, inbound_messages, clinics, contacts, page_cache, test_runs, test_answers,
             clinic_test_results, audits, audit_checks, scores, reports, report_views, stripe_events, orders,
-            subscriptions, intake_forms, owner_tasks, self_serve_requests, owner_notifications cascade`;
+            subscriptions, intake_forms, owner_tasks, self_serve_requests, owner_notifications, unsubscribe_attempts, api_cache cascade`;
   await sql`update app_settings set owner_user_id=null, kill_switch=false, auto_paused=false, auto_pause_reason=null,
             auto_pause_cleared_at=null, dry_run=true, live_enabled=false, warmup_start_date=null, daily_cap_override=null,
             send_window_start='09:30', send_window_end='16:30', claude_daily_spend_cap_usd=25,

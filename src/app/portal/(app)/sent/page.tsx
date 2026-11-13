@@ -1,8 +1,10 @@
+import { requireOwner } from "@/lib/auth";
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { typeLabel } from "../MessageList";
 
 export default async function SentPage() {
+  await requireOwner();
   const rows = await db()`
     select m.id, m.type, m.subject, m.to_email, m.sent_at, m.delivered_at, m.opened_at, m.replied_at,
            m.bounced_at, m.complained_at, m.dry_run, c.name as clinic_name

@@ -24,7 +24,7 @@ export default function HowItWorks() {
       <h2>How did you get my email address?</h2>
       <p>We only write to an address a clinic publishes on its own website, and each email names the page where we found it. We write at most twice. Every email has an <Link href="/unsubscribe">unsubscribe link</Link> that works at once, without a login. If your site says not to send solicitations, we do not write.</p>
       <h2>What happens if I buy?</h2>
-      <p>With the one-time report you receive every finding and the fix files, a short form for the facts only you know, and a retest four weeks later. With the monthly plan we rebuild or upgrade your site, install the fixes, add two answer pages a month for your approval, and retest every month. See <Link href="/pricing">pricing</Link>.</p>
+      <p>With the one-time report you receive every finding and the fix files, a short form for the facts only you know, and a retest four weeks later. With monthly reports you get the same report and files, then an updated report every month. With the full service plan we renovate your site or take it over, install the fixes, add two answer pages a month for your approval, and retest every month. See <Link href="/pricing">pricing</Link>.</p>
       <p><Link className="btn btn-primary" href="/#get-report">Get your free report</Link></p>
     </article>
   );

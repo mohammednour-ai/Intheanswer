@@ -85,13 +85,24 @@ async function handleDiscover(ctx: JobContext) {
     }
     // Only place_id and the website address are kept. The clinic is labelled by
     // its domain until the contact step reads the name from its own site.
+    // One clinic per website: a place whose domain already belongs to another
+    // clinic row (a seed, a self-serve request, the same practice found under
+    // a second place_id or in another sector or city) is not added again, so
+    // the same clinic is never contacted twice.
     const rows = await sql<{ id: string; inserted: boolean }[]>`
       insert into clinics (place_id, name, city_id, sector_id, website, domain, source)
-      values (${p.id}, ${d.domain ?? "(unnamed)"}, ${cityId}, ${sectorId},
-              ${p.websiteUri ?? null}, ${d.domain ?? null}, 'places')
+      select ${p.id}, ${d.domain ?? "(unnamed)"}, ${cityId}, ${sectorId},
+             ${p.websiteUri ?? null}, ${d.domain ?? null}, 'places'
+      where not exists (
+        select 1 from clinics x where x.domain = ${d.domain ?? null} and x.place_id is distinct from ${p.id})
       on conflict (place_id) do update set updated_at = now()
       returning id, (xmax = 0) as inserted`;
     const row = rows[0];
+    if (!row) {
+      summary.existing++;
+      summary.reasons["website already belongs to a known clinic"] = (summary.reasons["website already belongs to a known clinic"] ?? 0) + 1;
+      continue;
+    }
     if (row.inserted) {
       summary.added++;
       await ctx.enqueue("find_contact", `contact:${row.id}`, { clinicId: row.id });
@@ -114,4 +125,6 @@ async function handlePurgePlaces(ctx: JobContext) {
 }
 
 register("discover", handleDiscover);
+
+export { handleDiscover };
 register("purge_places_data", handlePurgePlaces);

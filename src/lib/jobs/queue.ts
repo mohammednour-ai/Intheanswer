@@ -96,7 +96,7 @@ export async function runJobs(
   opts: { worker?: string; limit?: number; kinds?: string[]; gate?: (kind: string) => Promise<string | null> } = {},
 ): Promise<RunResult> {
   const sql = db();
-  const worker = opts.worker ?? `w-${process.pid}`;
+  const worker = opts.worker ?? `w-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   const kinds = opts.kinds ?? Object.keys(handlers);
   await sql`select reap_stale_jobs()`;
   const jobs = await sql<Job[]>`select * from claim_jobs(${worker}, ${opts.limit ?? 10}, ${kinds})`;
@@ -104,12 +104,17 @@ export async function runJobs(
 
   for (const job of jobs) {
     const handler = handlers[job.kind];
+    // Heartbeat: the lock is stamped when the batch is claimed, so refresh it as
+    // each job starts. If the row is gone the job was reaped while it waited
+    // behind slower ones and another worker owns it now: do not run it twice.
+    const mine = await sql`update jobs set locked_at = now() where id = ${job.id} and status = 'running' and locked_by = ${worker} returning id`;
+    if (!mine.length) continue;
     const stop = opts.gate ? await opts.gate(job.kind) : null;
     if (stop) {
       // put it back untouched (do not burn an attempt)
       await sql`update jobs set status='queued', locked_at=null, locked_by=null,
                 attempts = attempts - 1, run_after = now() + interval '10 minutes',
-                last_error = ${"paused: " + stop} where id = ${job.id}`;
+                last_error = ${"paused: " + stop} where id = ${job.id} and locked_by = ${worker}`;
       res.deferred++;
       continue;
     }
@@ -124,14 +129,14 @@ export async function runJobs(
       const result = await handler(ctx);
       await sql`update jobs set status='done', finished_at=now(), locked_at=null,
                 result=${result === undefined ? null : sql.json(result as never)}, last_error=null
-                where id=${job.id}`;
+                where id=${job.id} and locked_by = ${worker}`;
       res.done++;
     } catch (err) {
       const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
       if (err instanceof DeferJob) {
         await sql`update jobs set status='queued', locked_at=null, locked_by=null, attempts = attempts - 1,
                   run_after = now() + make_interval(secs => ${err.seconds}), last_error=${msg}
-                  where id=${job.id}`;
+                  where id=${job.id} and locked_by = ${worker}`;
         res.deferred++;
         continue;
       }
@@ -141,7 +146,7 @@ export async function runJobs(
                   status = ${permanent ? "dead" : "queued"},
                   run_after = now() + make_interval(secs => ${backoffSeconds(job.attempts)}),
                   locked_at=null, locked_by=null, last_error=${msg}
-                where id=${job.id}`;
+                where id=${job.id} and locked_by = ${worker}`;
       res.failed++;
     }
   }

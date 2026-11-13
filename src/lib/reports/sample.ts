@@ -58,7 +58,7 @@ export function sampleTeaser(): TeaserData {
     ],
     pagesRead: 9,
     findingsTotal: 6,
-    offers: { oneTimeUrl: `${env().APP_URL}/pricing`, monthlyUrl: `${env().APP_URL}/pricing`, minTerm: o.minTerm },
+    offers: { oneTimeUrl: `${env().APP_URL}/pricing`, reportsUrl: `${env().APP_URL}/pricing`, monthlyUrl: `${env().APP_URL}/pricing`, minTerm: o.minTerm, reportsMinTerm: o.reportsMinTerm },
     limits:
       "SAMPLE: every clinic named in this report is invented, and the answers are illustrative. " +
       LIMITS_LINE("Claude", env().CLAUDE_MODEL, "the test date", "the clinic's city", 6),

@@ -74,7 +74,7 @@ describe("teaser and verification gate", () => {
     const html = renderTeaser(data);
     expect(html).toContain("In the answer");
     expect(html).toContain("1 of 6");
-    expect(html).toContain("Monthly plan");
+    expect(html).toContain("Full service plan");
     expect(html).not.toMatch(/gradient/i);
   });
 
@@ -169,6 +169,56 @@ describe("teaser and verification gate", () => {
     expect(scanLanguage("Act now, limited time", "x").length).toBeGreaterThan(0);
     expect(scanLanguage("We guarantee results", "x")[0].code).toBe("language_guarantee");
     expect(scanLanguage("No one can guarantee what an assistant will say.", "x")).toEqual([]);
+  });
+
+  it("language scan ignores known names and quoted questions, but not our own wording around them", () => {
+    const exclude = {
+      names: ["Premier Dental", "Top Smiles Barrie", "Leading Edge Dentistry"],
+      quoted: ["Who is the best dentist in Barrie for a nervous patient?"],
+    };
+    // facts we repeat: a competitor's name, the patient's question
+    expect(scanLanguage("The answer recommended Premier Dental and Top Smiles Barrie.", "x", exclude)).toEqual([]);
+    expect(scanLanguage('For "Who is the best dentist in Barrie for a nervous patient?", it named Leading Edge Dentistry.', "x", exclude)).toEqual([]);
+    expect(scanLanguage("premier   dental was named; see https://top-dental.example/best and write to best@premier.example", "x", exclude)).toEqual([]);
+    // without the data, the same text is still caught
+    expect(scanLanguage("The answer recommended Premier Dental.", "x")[0].message).toMatch(/superlative/);
+    // our own sentences are scanned exactly as before
+    expect(scanLanguage("Premier Dental is the premier choice in Barrie.", "x", exclude)[0].message).toMatch(/superlative \("premier"\)/);
+    expect(scanLanguage("We will make you the best dentist in Barrie.", "x", exclude)[0].message).toMatch(/superlative/);
+    expect(scanLanguage("Premier Dental will be recommended next month.", "x", exclude)[0].message).toMatch(/promise/);
+    // a name is removed only as a whole: part of it, or a longer word, is not
+    expect(scanLanguage("They are a premier clinic.", "x", exclude).length).toBe(1);
+    // a name that is only a banned word does not switch the rule off for that word
+    expect(scanLanguage("Rated top by patients.", "x", { names: ["Top"] }).length).toBe(1);
+    expect(scanLanguage("We are the premier service.", "x", { names: ["Premier"] }).length).toBe(1);
+  });
+
+  it("a clinic or competitor called Premier or Best does not hold the email; our own superlative still does", async () => {
+    const sql = db();
+    const s = await setup();
+    // the answers named a competitor with a banned word in its name, and the questions ask for "the best"
+    await sql`update test_answers set question = 'Who is the best dentist in Barrie?',
+              answer_text = 'Here are some options. Premier Dental Barrie is accepting new patients.',
+              clinics_named = ${sql.json([{ name: "Premier Dental Barrie", url: null, status: "recommended", quote: "Premier Dental Barrie is accepting new patients" }])}`;
+    await sql`update clinics set name = 'Top Care Dental' where id=${s.clinicId}`;
+    await computeClinicResults(s.clinicId, (await sql`select test_run_id from scores where id=${s.scoreId}`)[0].test_run_id);
+    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_444444444444");
+    const draft = buildFirstEmail(data, { toEmail: "info@maplegrove.example", sourceUrl: "https://maplegrove.example/", reportUrl: "https://intheanswer.test/r/tok" });
+    expect(draft.subject).toContain("Top Care Dental");
+    expect(data.rows[0].namedInstead).toEqual(["Premier Dental Barrie"]);
+
+    const v = await verifyTeaser({ data, draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v.flags.filter((f) => f.code.startsWith("language_"))).toEqual([]);
+    expect(v.passed).toBe(true);
+    // the same exclusions are handed back for scanning a rebuilt email
+    expect(scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", v.exclude)).toEqual([]);
+
+    // our own wording is still held
+    const boast = { ...draft, bodyText: draft.bodyText.replace("Two things I noticed", "We are the leading service for this. Two things I noticed") };
+    expect(boast.bodyText).not.toBe(draft.bodyText);
+    const v2 = await verifyTeaser({ data, draft: boast, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v2.flags.map((f) => f.code)).toContain("language_superlative");
+    expect(v2.passed).toBe(false);
   });
 });
 

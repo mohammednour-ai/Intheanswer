@@ -51,13 +51,11 @@ describe("queue housekeeping", () => {
     expect(l.action).toBe("expire");
   });
 
-  it("an approved item waits (it is not lost) while sending is not built", async () => {
-    await enqueue("send_message", "send:x", { messageId: "x" });
+  it("a send job for a message that no longer exists finishes quietly", async () => {
+    await enqueue("send_message", "send:x", { messageId: "00000000-0000-0000-0000-00000000dead" });
+    await db()`update jobs set run_after = now() + interval '1 day' where kind <> 'send_message'`;
     const r = await runWorkerBudget(20_000);
-    expect(r.deferred).toBe(1);
-    const [j] = await db()`select status::text, attempts, last_error from jobs`;
-    expect(j).toMatchObject({ status: "queued", attempts: 0 });
-    expect(j.last_error).toMatch(/phase 4/);
+    expect(r.done).toBe(1);
   });
 
   it("a lab-only speed result is never a teaser finding; a PageSpeed one can be", async () => {

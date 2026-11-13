@@ -4,6 +4,9 @@ import { sha256 } from "../tokens";
 import { addSuppression } from "./suppression";
 import { scanLanguage } from "../pipeline/verify";
 import { sendJobPriority } from "./priority";
+import { requeueAudit } from "../jobs/worker";
+import { effectiveDryRun } from "../settings";
+import { identificationProblems } from "./send";
 
 /**
  * Owner actions on queued messages. Every action is written to approval_log
@@ -44,6 +47,8 @@ async function log(id: string, action: string, actor: Actor, before?: unknown, a
 }
 
 const ACTIONABLE = ["pending_review", "held"];
+/** Not yet sent: the owner can still stop these. */
+const OPEN = ["draft", "pending_review", "held", "approved", "scheduled"];
 
 export async function approve(id: string, actor: Actor, action: "approve" | "bulk_approve" = "approve") {
   const m = await load(id);
@@ -52,7 +57,11 @@ export async function approve(id: string, actor: Actor, action: "approve" | "bul
     throw new Error("bulk approve is only allowed for items with zero flags");
   }
   const sql = db();
-  await sql`update messages set status='approved', updated_at=now() where id=${id} and status = any(${ACTIONABLE})`;
+  // Approving while live is the owner's go-ahead for a real send; approving in a dry run keeps it a dry-run item.
+  const dry = await effectiveDryRun();
+  const done = await sql`update messages set status='approved', dry_run=${dry}, expires_at=null, updated_at=now()
+                         where id=${id} and status = any(${ACTIONABLE}) returning id`;
+  if (!done.length) throw new Error("this item was already handled");
   await log(id, action, actor);
   await enqueue("send_message", `send:${id}`, { messageId: id }, { priority: await sendJobPriority(m.clinic_id) });
 }
@@ -78,7 +87,8 @@ export async function editAndApprove(id: string, actor: Actor, subject: string, 
   if (!subject || !bodyText) throw new Error("subject and body are required");
   // An edit must still pass the language rules and keep the unsubscribe link.
   const problems = scanLanguage(subject + "\n" + bodyText.split("\n--\n")[0], "edited email").map((f) => f.message);
-  if (!/\/unsubscribe\//.test(bodyText)) problems.push("edited email: the unsubscribe link was removed");
+  // ...and it must still say who is sending it and how to stop it (CASL).
+  for (const p of identificationProblems(m.type, bodyText)) problems.push(`edited email: ${p}`);
   if (problems.length) throw new Error(`edit not saved: ${problems.join("; ")}`);
   const sql = db();
   await sql`update messages set subject=${subject}, body_text=${bodyText}, body_html=null,
@@ -89,8 +99,9 @@ export async function editAndApprove(id: string, actor: Actor, subject: string, 
 
 export async function skip(id: string, actor: Actor) {
   const m = await load(id);
+  if (!OPEN.includes(m.status)) throw new Error(`cannot skip a message in status ${m.status}`);
   const sql = db();
-  await sql`update messages set status='skipped', updated_at=now() where id=${id}`;
+  await sql`update messages set status='skipped', updated_at=now() where id=${id} and status = any(${OPEN})`;
   if (m.clinic_id && m.type === "first_email") {
     await sql`update clinics set status='skipped', status_reason='skipped by owner', updated_at=now() where id=${m.clinic_id}`;
   }
@@ -101,7 +112,8 @@ export async function neverContact(id: string, actor: Actor) {
   const m = await load(id);
   const sql = db();
   await addSuppression("address", m.to_email, "owner chose never contact", "owner");
-  await sql`update messages set status='cancelled', updated_at=now() where id=${id}`;
+  // a message that already left stays "sent": only unsent ones are cancelled
+  await sql`update messages set status='cancelled', updated_at=now() where id=${id} and status = any(${OPEN})`;
   if (m.clinic_id) {
     await sql`update clinics set status='suppressed', status_reason='never contact (owner)', updated_at=now() where id=${m.clinic_id}`;
     await sql`update messages set status='cancelled', updated_at=now()
@@ -110,11 +122,21 @@ export async function neverContact(id: string, actor: Actor) {
   await log(id, "never_contact", actor);
 }
 
+/**
+ * Regenerate: drop this draft and build a new one from a fresh audit. Only the
+ * teaser emails are rebuilt from evidence; for other types the draft is
+ * cancelled and the owner writes the reply from the Replies page.
+ */
 export async function regenerate(id: string, actor: Actor) {
   const m = await load(id);
   if (!ACTIONABLE.includes(m.status)) throw new Error(`cannot regenerate a message in status ${m.status}`);
+  const teaser = m.type === "first_email" || m.type === "self_serve_teaser";
+  if (teaser && !m.clinic_id) throw new Error("this item has no clinic to rebuild from");
   const sql = db();
-  await sql`update messages set status='cancelled', updated_at=now() where id=${id}`;
+  await sql`update messages set status='cancelled', updated_at=now() where id=${id} and status = any(${ACTIONABLE})`;
   await log(id, "regenerate", actor);
-  await enqueue("regenerate_message", `regen:${id}`, { messageId: id }, { priority: 40 });
+  if (teaser && m.clinic_id) {
+    const ok = await requeueAudit(m.clinic_id, `g${id.slice(0, 8)}${Date.now().toString(36)}`, "regenerating at the owner's request");
+    if (!ok) throw new Error("this clinic can no longer be contacted, so nothing was rebuilt");
+  }
 }

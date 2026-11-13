@@ -270,6 +270,11 @@ export function checkRealText(c: Crawl, render: RenderMetrics | null): SiteCheck
 export function checkHttps(c: Crawl, httpProbe: { finalUrl: string; status: number } | null): SiteCheck {
   const key = "https";
   if (!c.home) return cnt(key, "security", "The home page could not be read.");
+  // The address the home page was finally served from must be known. A stored
+  // copy without it says nothing about redirects, so it is never a finding.
+  if (c.home.finalUrlKnown === false && !c.home.finalUrl.startsWith("https://")) {
+    return cnt(key, "security", "The address the home page is finally served from was not recorded, so HTTPS could not be tested.");
+  }
   const ev: Evidence[] = [{ kind: "raw_source", url: c.home.finalUrl, label: `home page served at ${c.home.finalUrl}` }];
   if (!c.home.finalUrl.startsWith("https://")) {
     return { key, category: "security", result: "needs_work", impact: IMPACT[key], line: "The home page is served without HTTPS.",
@@ -314,12 +319,14 @@ export function checkMobileLayout(c: Crawl, render: RenderMetrics | null): SiteC
   const issues: string[] = [];
   if (!vpOk) issues.push("no mobile viewport setting");
   const overflow = render.scrollWidth - render.innerWidth;
-  if (overflow > 4) issues.push(`the page is ${overflow}px wider than the screen (sideways scrolling)`);
+  if (overflow > 4) issues.push(`a layout ${overflow}px wider than the screen (sideways scrolling)`);
   const smallShare = render.textElements ? render.smallTextElements / render.textElements : 0;
-  if (smallShare > 0.25) issues.push(`${Math.round(smallShare * 100)}% of text is smaller than 12px`);
-  if (render.smallTapTargets >= 5) issues.push(`${render.smallTapTargets} buttons or links are smaller than 24 by 24 pixels`);
+  if (smallShare > 0.25) issues.push(`${Math.round(smallShare * 100)}% of its text smaller than 12px`);
+  if (render.smallTapTargets >= 5) issues.push(`${render.smallTapTargets} buttons or links smaller than 24 by 24 pixels`);
   const ev: Evidence[] = [
     { kind: "raw_source", url: c.home.url, label: `rendered at ${render.viewport.width}x${render.viewport.height}; viewport meta: ${vp ?? "none"}` },
+    // the measured totals, so a reader of the evidence sees the counts and not only the three examples
+    { kind: "raw_source", url: c.home.url, label: `measured on the rendered page: ${render.smallTapTargets} of ${render.tapTargets} buttons or links smaller than 24 by 24 pixels; ${render.smallTextElements} of ${render.textElements} text elements smaller than 12px; page width ${render.scrollWidth}px on a ${render.innerWidth}px screen. The entries below are examples, not the full list.` },
     ...render.smallTapExamples.slice(0, 3).map((t) => ({ kind: "raw_source" as const, url: c.home!.url, label: `small tap target: ${t}` })),
   ];
   const metrics = { overflow, smallTextShare: smallShare, smallTapTargets: render.smallTapTargets, tapTargets: render.tapTargets, viewport: vp };

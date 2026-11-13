@@ -3,6 +3,7 @@ import { env } from "../env";
 import { withRecording } from "../adapters/recorder";
 import { executablePath } from "../reports/pdf";
 import { proxyArgs } from "./browser";
+import { assertPublicUrl } from "../adapters/http";
 import type { PerfResult } from "./checks";
 
 /**
@@ -61,6 +62,14 @@ async function pagespeed(url: string, strategy: "mobile" | "desktop", key: strin
 }
 
 async function lighthouseLocal(url: string, strategy: "mobile" | "desktop"): Promise<PerfResult | null> {
+  // Checked again right before the run: the address must be public now, not
+  // only when the crawl started.
+  // Limit: Lighthouse drives its own Chromium and we do not intercept its
+  // requests, so a redirect or a sub-resource on the page can still reach a
+  // private address from this machine. Only the start URL is guaranteed
+  // public. Set PAGESPEED_API_KEY (the test then runs at Google, not here) or
+  // run this worker on a host with no route to private networks.
+  await assertPublicUrl(url);
   const { default: lighthouse } = await import("lighthouse");
   const chromeLauncher = await import("chrome-launcher");
   const exe = await executablePath();

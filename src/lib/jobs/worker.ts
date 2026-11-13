@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { localDate } from "../time";
-import { runJobs, type Handler, type RunResult } from "./queue";
+import { enqueue, runJobs, type Handler, type RunResult } from "./queue";
 import { handlers } from "./handlers";
 
 /** Jobs that call paid APIs and so stop when the daily spend cap is reached. */
@@ -12,6 +12,7 @@ export const CLAUDE_JOBS = new Set([
   "classify_reply",
   "build_full_report",
   "monthly_retest",
+  "purchase_retest",
   "regenerate_message",
   "review_lookup",
   "review_analysis",
@@ -58,7 +59,7 @@ export async function runWorkerOnce(opts: { limit?: number; kinds?: string[]; ex
 }
 
 /** Jobs that can take minutes (a browser, a 40-page crawl). */
-export const HEAVY_JOBS = new Set(["site_test", "test_city", "audit_clinic"]);
+export const HEAVY_JOBS = new Set(["site_test", "test_city", "audit_clinic", "monthly_retest", "purchase_retest", "build_full_report"]);
 
 /**
  * Run jobs one at a time until the time budget is used. A heavy job is only
@@ -76,7 +77,8 @@ export async function runWorkerBudget(budgetMs: number, heavyNeedsMs = 200_000):
     const r = await runJobs(handlers, { limit: 1, kinds, gate });
     if (r.claimed === 0) break;
     total.claimed += r.claimed; total.done += r.done; total.failed += r.failed; total.deferred += r.deferred;
-    if (r.deferred && !r.done && !r.failed) break; // only gated or waiting work is left
+    // A deferred or gated job has its run_after moved forward, so it is not
+    // claimed again in this run: keep going with whatever else is runnable.
   }
   return total;
 }
@@ -87,21 +89,42 @@ export async function runWorkerBudget(budgetMs: number, heavyNeedsMs = 200_000):
  */
 export async function expirePending(): Promise<number> {
   const sql = db();
-  const rows = await sql<{ id: string; clinic_id: string | null }[]>`
-    update messages set status='expired', updated_at=now()
-    where status='pending_review' and expires_at is not null and expires_at < now()
-    returning id, clinic_id`;
-  for (const m of rows) {
-    await sql`insert into approval_log (message_id, action, actor_email) values (${m.id}, 'expire', 'system')`;
-    if (!m.clinic_id) continue;
-    await sql`update reports set superseded=true where clinic_id=${m.clinic_id} and kind='teaser'`;
-    await sql`update clinics set status='contact_found', status_reason='queued item expired; audit rerun', updated_at=now() where id=${m.clinic_id}`;
-    const label = `${localDate(new Date()).slice(0, 7)}-r${m.id.slice(0, 8)}`;
-    const [c] = await sql<{ sector_id: number; city_id: number }[]>`select sector_id, city_id from clinics where id=${m.clinic_id}`;
-    const month = localDate(new Date()).slice(0, 7);
-    const { enqueue } = await import("./queue");
-    await enqueue("test_city", `test:${c.sector_id}:${c.city_id}:${month}`, { sectorId: c.sector_id, cityId: c.city_id, runLabel: month });
-    await enqueue("audit_clinic", `audit:${m.clinic_id}:${label}`, { clinicId: m.clinic_id, runLabel: month });
+  const due = await sql<{ id: string }[]>`
+    select id from messages where status='pending_review' and expires_at is not null and expires_at < now()
+      and type in ('first_email', 'self_serve_teaser') limit 50`;
+  let n = 0;
+  for (const d of due) {
+    // one transaction per item: the message is never left expired without its re-audit
+    const clinicId = await sql.begin(async (tx) => {
+      const [m] = await tx<{ id: string; clinic_id: string | null }[]>`
+        update messages set status='expired', updated_at=now()
+        where id=${d.id} and status='pending_review' returning id, clinic_id`;
+      if (!m) return undefined;
+      await tx`insert into approval_log (message_id, action, actor_email) values (${m.id}, 'expire', 'system')`;
+      return m.clinic_id;
+    });
+    if (clinicId === undefined) continue;
+    n++;
+    if (clinicId) await requeueAudit(clinicId, `r${d.id.slice(0, 8)}`, "queued item expired; audit rerun");
   }
-  return rows.length;
+  return n;
+}
+
+/**
+ * Start a clinic's audit again (after an expiry or a Regenerate): the old
+ * teaser is superseded and a fresh audit, score and teaser follow. Clinics
+ * that must not be contacted are left alone.
+ */
+export async function requeueAudit(clinicId: string, tag: string, reason: string): Promise<boolean> {
+  const sql = db();
+  const [c] = await sql<{ sector_id: number; city_id: number }[]>`
+    update clinics set status='contact_found', status_reason=${reason}, updated_at=now()
+    where id=${clinicId} and status not in ('suppressed', 'do_not_contact', 'customer', 'excluded')
+    returning sector_id, city_id`;
+  if (!c) return false;
+  await sql`update reports set superseded=true where clinic_id=${clinicId} and kind='teaser'`;
+  const month = localDate(new Date()).slice(0, 7);
+  await enqueue("test_city", `test:${c.sector_id}:${c.city_id}:${month}`, { sectorId: c.sector_id, cityId: c.city_id, runLabel: month });
+  await enqueue("audit_clinic", `audit:${clinicId}:${month}-${tag}`, { clinicId, runLabel: month });
+  return true;
 }

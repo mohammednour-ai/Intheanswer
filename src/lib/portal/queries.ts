@@ -63,15 +63,17 @@ export async function getMessage(id: string) {
 export async function listReplies(limit = 100) {
   const sql = db();
   return sql`
-    select i.*, c.name as clinic_name from inbound_messages i
+    select i.*, c.name as clinic_name, d.id as draft_message_id, d.status::text as draft_status
+    from inbound_messages i
     left join clinics c on c.id = i.clinic_id
+    left join lateral (select id, status from messages where inbound_id = i.id order by created_at desc limit 1) d on true
     order by i.received_at desc limit ${limit}`;
 }
 
 export async function listHeldClinics(limit = 100) {
   const sql = db();
   return sql`
-    select c.id, c.name, c.status, c.status_reason, c.updated_at, ci.name as city, se.name as sector
+    select c.id, c.name, c.status, c.status_reason, c.source::text as source, c.updated_at, ci.name as city, se.name as sector
     from clinics c left join cities ci on ci.id = c.city_id left join sectors se on se.id = c.sector_id
     where c.status = 'held' order by c.updated_at desc limit ${limit}`;
 }

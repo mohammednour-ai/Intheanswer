@@ -4,11 +4,16 @@ import { PermanentJobError, DeferJob } from "../jobs/queue";
 import { register } from "../jobs/handlers";
 import { matchClinic, type NamedClinic } from "./match";
 import { updateClinicPriority } from "../sending/priority";
+import { handOverRetestScore, type RetestContext } from "../retests/handover";
 
 /**
  * Step 5: score = number of questions where the clinic was recommended.
  * Continue only with a real gap: at least two questions not recommended AND at
  * least three confirmed site findings. Others are parked.
+ *
+ * A customer is different: it is scored, never parked and never sent a teaser.
+ * When the score belongs to a retest (payload.retest, set by the monthly retest
+ * and the retest after a purchase) it is handed to that retest's report job.
  */
 
 export function qualifies(total: number, recommended: number, confirmedFindings: number): { ok: boolean; reason: string } {
@@ -40,7 +45,9 @@ export async function computeClinicResults(clinicId: string, testRunId: string) 
 }
 
 async function handleScore(ctx: JobContext) {
-  const { clinicId, auditId, testRunId, force, runLabel } = ctx.job.payload as { clinicId: string; auditId: string; testRunId: string; force?: boolean; runLabel?: string };
+  const { clinicId, auditId, testRunId, force, runLabel, retest } = ctx.job.payload as {
+    clinicId: string; auditId: string; testRunId: string; force?: boolean; runLabel?: string; retest?: RetestContext;
+  };
   const sql = db();
   // The site test feeds the teaser. Wait for it (finished or failed) for up to
   // 30 minutes; after that the clinic continues without that section.
@@ -66,7 +73,15 @@ async function handleScore(ctx: JobContext) {
       not_named=excluded.not_named, confirmed_findings=excluded.confirmed_findings, qualifies=excluded.qualifies, reason=excluded.reason
     returning id`;
   const priority = await updateClinicPriority(clinicId, auditId, rec, results.length);
-  const [src] = await sql<{ source: string }[]>`select source from clinics where id=${clinicId}`;
+  const [src] = await sql<{ source: string; status: string }[]>`select source, status::text from clinics where id=${clinicId}`;
+  if (retest || src?.status === "customer") {
+    // Never parked, never a teaser. The clinic's status is left as it is.
+    const next = retest ? await handOverRetestScore(ctx.enqueue, { clinicId, scoreId: score.id, testRunId, runLabel: runLabel ?? null, retest }) : null;
+    if (runLabel && /^\d{4}-\d{2}$/.test(runLabel)) {
+      await ctx.enqueue("propose_pages", `pages:${clinicId}:${runLabel}`, { clinicId, runLabel, testRunId }, { maxAttempts: 2 });
+    }
+    return { score: `${rec} of ${results.length}`, findings: f.n, customer: true, next };
+  }
   const selfServe = src?.source === "self_serve"; // the clinic asked for it: never parked
   if (!q.ok && !force && !selfServe) {
     await sql`update clinics set status='parked', status_reason=${q.reason}, updated_at=now() where id=${clinicId}`;

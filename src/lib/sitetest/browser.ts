@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
-import puppeteer, { type Browser } from "puppeteer-core";
+import puppeteer, { type Browser, type Page } from "puppeteer-core";
 import { executablePath } from "../reports/pdf";
-import { USER_AGENT } from "../adapters/http";
+import { USER_AGENT, assertPublicUrl, isPrivateHost } from "../adapters/http";
 import type { AxeViolation, RenderMetrics } from "./checks";
 
 /**
@@ -18,6 +18,54 @@ export function proxyArgs(): string[] {
 export async function launchBrowser(): Promise<Browser> {
   const exe = await executablePath();
   return puppeteer.launch({ executablePath: exe.path, args: [...exe.args, ...proxyArgs()], headless: true });
+}
+
+/** Should the browser be stopped from requesting this URL? Non-network schemes are harmless; hosts are checked once each. */
+export function makeRequestGuard(check: (url: string) => Promise<void> = assertPublicUrl): (url: string) => Promise<boolean> {
+  const byHost = new Map<string, Promise<boolean>>();
+  return async (url: string) => {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      return true;
+    }
+    if (u.protocol === "data:" || u.protocol === "blob:" || u.protocol === "about:") return false;
+    if (u.protocol !== "http:" && u.protocol !== "https:" && u.protocol !== "ws:" && u.protocol !== "wss:") return true; // file:, ftp:, chrome:, ...
+    if (isPrivateHost(u.hostname)) return true;
+    let verdict = byHost.get(u.hostname);
+    if (!verdict) {
+      const asHttp = `${u.protocol === "ws:" ? "http:" : u.protocol === "wss:" ? "https:" : u.protocol}//${u.host}/`;
+      verdict = check(asHttp).then(() => false, () => true);
+      byHost.set(u.hostname, verdict);
+    }
+    return verdict;
+  };
+}
+
+/**
+ * A clinic's page runs in our browser, on our network: its scripts, frames,
+ * images and redirects could point at loopback, private or link-local hosts
+ * (cloud metadata, internal services). Every request the page makes is
+ * intercepted and aborted unless its host is public, including each redirect
+ * hop (a redirect is a new request). Must be called before page.goto.
+ *
+ * Limits: the host is resolved here and again by Chromium, so a DNS answer
+ * that changes in between is not caught; WebSocket and WebRTC traffic does
+ * not pass through request interception.
+ */
+export async function guardPage(page: Page): Promise<void> {
+  const blocked = makeRequestGuard();
+  await page.setRequestInterception(true);
+  page.on("request", (req) => {
+    if (req.isInterceptResolutionHandled()) return;
+    blocked(req.url()).then(
+      (stop) => (stop ? req.abort("blockedbyclient") : req.continue()),
+      () => req.abort("blockedbyclient"),
+    ).catch(() => {
+      /* the page or request went away while we were deciding */
+    });
+  });
 }
 
 let axeSource: string | null = null;
@@ -89,6 +137,7 @@ export async function measureMobile(browser: Browser, url: string): Promise<Rend
   const page = await browser.newPage();
   const failed = watchCriticalFailures(page, new URL(url).hostname.replace(/^www\./, ""));
   try {
+    await guardPage(page);
     // A standard phone user agent (so sites serve their mobile layout) that still names our bot.
     await page.setUserAgent(`Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Mobile Safari/537.36 ${USER_AGENT}`);
     await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
@@ -108,6 +157,7 @@ export async function runAxe(browser: Browser, urls: string[]): Promise<{ violat
     const page = await browser.newPage();
     const failed = watchCriticalFailures(page, new URL(url).hostname.replace(/^www\./, ""));
     try {
+      await guardPage(page);
       await page.setViewport({ width: 1280, height: 900 });
       await page.goto(url, { waitUntil: "networkidle2", timeout: 45_000 });
       await page.addScriptTag({ content: axe() });

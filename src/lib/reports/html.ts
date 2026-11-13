@@ -16,24 +16,35 @@ let fontCss: string | null = null;
 /** Space Grotesk + Inter embedded as data URIs so the PDF and the hosted page need no network. */
 export function embeddedFonts(): string {
   if (fontCss) return fontCss;
-  const root = path.join(process.cwd(), "node_modules", "@fontsource");
-  const face = (family: string, dir: string, file: string, weight: number) => {
-    try {
-      const b64 = fs.readFileSync(path.join(root, dir, "files", file)).toString("base64");
-      return `@font-face{font-family:"${family}";font-weight:${weight};font-style:normal;font-display:swap;src:url(data:font/woff2;base64,${b64}) format("woff2");}`;
-    } catch {
-      return "";
-    }
-  };
-  fontCss = [
-    face("Inter", "inter", "inter-latin-400-normal.woff2", 400),
-    face("Inter", "inter", "inter-latin-600-normal.woff2", 600),
-    face("Inter", "inter", "inter-latin-700-normal.woff2", 700),
-    face("Space Grotesk", "space-grotesk", "space-grotesk-latin-500-normal.woff2", 500),
-    face("Space Grotesk", "space-grotesk", "space-grotesk-latin-600-normal.woff2", 600),
-    face("Space Grotesk", "space-grotesk", "space-grotesk-latin-700-normal.woff2", 700),
-  ].join("");
-  return fontCss;
+  // Every path is written out in full (no computed segments) so the build's
+  // file tracing can see it; next.config.ts also lists these files in
+  // outputFileTracingIncludes, which is what guarantees they are deployed.
+  const cwd = process.cwd();
+  const faces: { family: string; weight: number; file: string }[] = [
+    { family: "Inter", weight: 400, file: path.join(cwd, "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2") },
+    { family: "Inter", weight: 600, file: path.join(cwd, "node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2") },
+    { family: "Inter", weight: 700, file: path.join(cwd, "node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2") },
+    { family: "Space Grotesk", weight: 500, file: path.join(cwd, "node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2") },
+    { family: "Space Grotesk", weight: 600, file: path.join(cwd, "node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-600-normal.woff2") },
+    { family: "Space Grotesk", weight: 700, file: path.join(cwd, "node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2") },
+  ];
+  let missing = 0;
+  const css = faces
+    .map((f) => {
+      try {
+        const b64 = fs.readFileSync(/* turbopackIgnore: true */ f.file).toString("base64");
+        return `@font-face{font-family:"${f.family}";font-weight:${f.weight};font-style:normal;font-display:swap;src:url(data:font/woff2;base64,${b64}) format("woff2");}`;
+      } catch (e) {
+        // The report still renders (system fonts), but say so: a missing font is a deployment fault.
+        missing++;
+        console.error(`report font missing: ${f.family} ${f.weight} (${f.file}): ${(e as Error).message}`);
+        return "";
+      }
+    })
+    .join("");
+  // keep the result only when complete, so a later call can pick the fonts up once they are there
+  if (!missing) fontCss = css;
+  return css;
 }
 
 export const REPORT_CSS = `
@@ -81,6 +92,8 @@ th:first-child,td:first-child{padding-left:0}th:last-child,td:last-child{padding
 .finding p{margin:0;color:var(--body2);font-size:12.5px}
 .finding .src{font-size:11px;color:var(--muted);word-break:break-all}
 .offers{display:grid;grid-template-columns:5fr 7fr;gap:14px;align-items:stretch}
+.offers.three{grid-template-columns:1fr 1fr}.offers.three .offer.main{grid-column:1 / -1}
+.price span.dim{color:var(--muted)}
 .offer{border:1.5px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:8px;break-inside:avoid}
 .price{font-family:"Space Grotesk",Inter,sans-serif;font-weight:700;font-size:22px}
 .price span{font-size:14px;font-weight:500;color:var(--tint)}

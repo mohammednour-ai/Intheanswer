@@ -35,14 +35,21 @@ async function seed() {
   const sql = db();
   for (const s of SEEDS) {
     const domain = new URL(s.website).hostname.replace(/^www\./, "");
+    // Idempotent by domain: running seed again never adds a second row for the same site.
     const [row] = await sql<{ id: string }[]>`
       insert into clinics (name, website, domain, city_id, sector_id, source)
       select ${s.name}, ${s.website}, ${domain}, c.id, se.id, 'seed' from cities c, sectors se
       where c.name=${s.city} and se.slug=${s.sector}
-      on conflict do nothing returning id`;
-    const id = row?.id ?? (await sql<{ id: string }[]>`select id from clinics where domain=${domain}`)[0].id;
+        and not exists (select 1 from clinics x where x.domain=${domain})
+      returning id`;
+    const [existing] = row ? [] : await sql<{ id: string }[]>`select id from clinics where domain=${domain} order by created_at limit 1`;
+    const id = row?.id ?? existing?.id;
+    if (!id) {
+      console.log(`skipped ${s.name}: city "${s.city}" or sector "${s.sector}" is not in the database`);
+      continue;
+    }
     await enqueue("find_contact", `contact:${id}`, { clinicId: id });
-    console.log(`seeded ${s.name} (${id})`);
+    console.log(`${row ? "seeded" : "already present:"} ${s.name} (${id})`);
   }
 }
 

@@ -105,6 +105,8 @@ describe("send checks", () => {
     expect((await getSettings()).auto_paused).toBe(true);
     // clearing the pause means old events no longer count
     await db()`update app_settings set auto_paused=false, auto_pause_cleared_at=now() where id`;
+    // the events below are stamped by this process, the clearing by the database: keep them apart
+    await new Promise((r) => setTimeout(r, 250));
     r = await evaluateAutoPause();
     expect(r.paused).toBe(false);
     // 1 bounce in 40 sends = 2.5%: fine

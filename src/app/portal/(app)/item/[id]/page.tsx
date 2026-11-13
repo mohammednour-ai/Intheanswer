@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/auth";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getMessage } from "@/lib/portal/queries";
@@ -30,6 +31,7 @@ interface Flag {
 }
 
 export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
+  await requireOwner();
   const { id } = await props.params;
   const data = await getMessage(id);
   if (!data) notFound();
@@ -176,7 +178,7 @@ export default async function ItemPage(props: PageProps<"/portal/item/[id]">) {
           <h2 id="act-h" style={{ fontSize: "1.1rem" }}>
             Actions
           </h2>
-          <p className="small muted">Sending is not built yet (phase 4). Approving records your decision and holds the item; nothing is sent.</p>
+          <p className="small muted">Approving queues the email. It leaves at the next free slot inside sending hours, after every sending rule is checked again. In a dry run it is recorded as sent and nothing leaves.</p>
           <div className="row">
             <form action={approveAction.bind(null, id)}>
               <button className="btn btn-primary">Approve and send</button>

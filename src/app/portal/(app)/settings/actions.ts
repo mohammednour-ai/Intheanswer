@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { setTypeMode } from "@/lib/sending/modes";
+import { checkDns } from "@/lib/sending/dns";
 
 function num(v: FormDataEntryValue | null, min: number, max: number): number | null {
   if (v === null || String(v).trim() === "") return null;
@@ -119,5 +120,11 @@ export async function saveSectorAction(form: FormData) {
       places_query=excluded.places_query, regulator_note=excluded.regulator_note
     returning id`;
   await sql`insert into discovery_targets (sector_id, city_id) select ${s.id}, id from cities on conflict do nothing`;
+  revalidatePath("/portal/settings");
+}
+
+export async function checkDnsAction() {
+  await requireOwner();
+  await checkDns();
   revalidatePath("/portal/settings");
 }

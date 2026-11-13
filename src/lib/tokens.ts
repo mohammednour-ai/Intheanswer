@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { env } from "./env";
+import { appSecret, env } from "./env";
 
 /** Unguessable URL token (report links, intake forms). 128 bits, base64url. */
 export function randomToken(bytes = 16): string {
@@ -11,7 +11,7 @@ export function sha256(s: string | Buffer): string {
 }
 
 function hmac(data: string): string {
-  return crypto.createHmac("sha256", env().APP_SECRET).update(data).digest("base64url").slice(0, 32);
+  return crypto.createHmac("sha256", appSecret()).update(data).digest("base64url").slice(0, 32);
 }
 
 /**

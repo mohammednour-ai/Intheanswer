@@ -4,32 +4,40 @@ Automated service for intheanswer.ca. It finds local clinics in Ontario, tests w
 them when patients ask for a recommendation, sends each clinic a free personalised report, sells the fix,
 delivers it, and retests every month.
 
-Status: **built in phases, dry run only.** Nothing is sent or charged until the owner says go live.
+Status: **all six phases are built; dry run only.** Nothing is sent or charged until the owner goes live
+(see "Going live"). Not yet proven against the real services: Resend, Stripe, Supabase and Vercel have only
+been exercised through fakes and a local Postgres.
 
 | Phase | Scope | State |
 |---|---|---|
 | 1 | Data model, RLS, job queue, portal shell | done |
-| 2 | Pipeline steps 1 to 7 (discover → verify), teasers | built; real teasers need `ANTHROPIC_API_KEY` |
-| 3 | Public site | done |
-| 4 | Sending, approval queue, replies | |
-| 5 | Stripe and full-report delivery | |
-| 6 | Monthly retests | |
-| + | Added services: review analysis, full site test, answer pages | built, dry run on seeds |
+| 2 | Pipeline steps 1 to 7 (discover → verify), teasers | done; needs `ANTHROPIC_API_KEY` |
+| 3 | Public site, self-serve box, unsubscribe | done |
+| 4 | Sending (Resend), bounces and complaints, DNS gate, replies, follow-up | done; needs Resend keys and DNS |
+| 5 | Stripe checkout and webhook, full report, intake form | done; needs Stripe keys and prices |
+| 6 | Scheduled discovery, monthly retests, retest after purchase, alerts, digest, retention | done |
+| + | Review analysis, full site test, answer pages | done |
 
 ## Local development
 
+Works the same on Windows, macOS and Linux. Needs Node 22 and any Postgres 15+ (Docker is the easy way).
+
 ```bash
 npm install
-sudo pg_ctlcluster 16 main start        # or any Postgres 15+
-npm run db:local                         # recreates the local DB: Supabase shim + migrations + seed
+docker run -d --name ita-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
 cp .env.example .env.local               # set DATABASE_URL=postgres://postgres:postgres@localhost:5432/intheanswer
-PORTAL_DEV_BYPASS=1 npm run dev          # portal at http://localhost:3000/portal without Supabase Auth
-npm test                                 # builds a separate intheanswer_test database
-npm run typecheck
+                                         # and PORTAL_DEV_BYPASS=1, APP_URL=http://localhost:3000
+npm run db:local                         # drops and rebuilds the LOCAL database: shim + migrations + seed
+npm run dev                              # site at http://localhost:3000, portal at /portal
+npm run worker                           # runs the jobs and the scheduler (the cron route does this in production)
+npm test                                 # rebuilds and uses intheanswer_test (TEST_DATABASE_URL to override)
+npm run typecheck && npm run lint
 ```
 
-`supabase/local/00_supabase_shim.sql` mimics Supabase's `auth.uid()` and roles so RLS can be tested on
-plain Postgres. Never apply it to a Supabase project.
+On Windows run `npm test` from PowerShell or cmd, not Git Bash. `supabase/local/00_supabase_shim.sql` mimics
+the Supabase `auth.uid()` function and roles so RLS can be tested on plain Postgres. Never apply it to a
+Supabase project; `npm run db:local` refuses any host other than localhost. `.github/workflows/ci.yml` runs
+typecheck, lint, tests and the build on every push.
 
 ## Architecture
 
@@ -81,7 +89,6 @@ Maps ratings are never stored), so for other clinics they show "not available".
   every minute. Site tests need a function limit of 300 s; Chromium on Vercel is untested, so run site
   tests from a small separate worker (`npm run worker`) if it fails there.
 - Queued items expire after 7 days and the clinic's audit is queued again.
-- Sending is not built yet: approved items wait in the queue.
 
 ## Added services
 
@@ -146,6 +153,84 @@ records the latest result for the question a live page targets (`updateLivePageR
 ### Settings (portal > Settings)
 `pages_per_month` (2), `crawl_page_cap` (40), `api_cache_days` (7), and the daily spend cap, which now
 covers every paid API (Claude and Places), not only Claude.
+
+## Sending, replies and follow-up (phase 4)
+
+- **One way out.** Every outbound message is a `messages` row created by the teaser job or by
+  `queueMessage` (`src/lib/sending/outbox.ts`, idempotent). Approval only queues the `send_message` job;
+  the job (`src/lib/sending/send.ts`) re-applies every rule at the moment of sending, under a lock so the
+  daily cap and spacing cannot be overrun, and refuses a message that lost the sender name, the mailing
+  address or the unsubscribe link (also checked when the owner edits).
+- **Dry run.** The message is marked sent with `dry_run = true`, a `send_audit_log` row is written, nothing
+  leaves and no contact is counted. A message created or approved during a dry run stays a dry-run message
+  after going live, so switching to live never releases a backlog.
+- **Provider.** Resend through `src/lib/adapters/mail.ts`. Mail carries `List-Unsubscribe` and one-click
+  headers. `POST /api/resend/webhook` (signature checked) records delivery events; a hard bounce or a
+  complaint suppresses the address at once, and any complaint or bounces above 3% pause all sending and
+  mail the owner.
+- **DNS gate.** `src/lib/sending/dns.ts` checks SPF, DKIM and DMARC for `SENDING_DOMAIN` (the Resend
+  verification result when `RESEND_DOMAIN_ID` is set). Portal > Settings > "Check DNS now"; it is also
+  rechecked daily and whenever a send is refused for it. Live sending is refused until it passes.
+- **Replies.** Inbound mail arrives on the same webhook (`email.received`). A reply stops the cold
+  sequence for that clinic and is forwarded to the owner. Unsubscribe wording and automatic replies are
+  recognised without a model; the rest is classified (`classify_reply`). A question that matches an
+  approved answer, or an interested reply, gets a draft in the queue; anything else is escalated with no
+  draft. Portal > Replies lets the owner write the answer or mark it handled.
+- **Follow-up.** One reminder, once, `follow_up_business_days` after a first email with no reply. It is
+  reviewed like any other item and counts toward the two-contact limit.
+
+## Payments and delivery (phase 5)
+
+- Teaser buttons go to `/buy/<report token>/report` and `/buy/<report token>/monthly`. The Stripe session
+  is created only when the visitor presses the button. Checkout is closed (with a plain notice) in dry
+  run, while Stripe is not configured, when the Stripe price is not exactly 200.00 CAD, and for the monthly
+  plan while `MONTHLY_MIN_TERM_MONTHS` is not a number. A clinic is never charged twice for the same thing.
+- `POST /api/stripe/webhook`: signature checked, every event stored once (`stripe_events`), replays are
+  no-ops. Payment makes the clinic a customer, stops cold mail, queues a receipt and starts fulfilment.
+  Refunds, failed renewals and cancellations update the records and alert the owner.
+- One-time: `build_full_report` builds the full report from stored evidence, runs it through the gate,
+  renders the PDF and queues a `full_report_delivery` email (owner-reviewable). Monthly: the same first
+  delivery plus an intake form (`/intake/<token>`, no login, no passwords) and an onboarding task.
+- Portal > Customers lists orders, subscriptions and onboarding tasks.
+
+## Schedule, retests and alerts (phase 6)
+
+`runScheduleTick` (`src/lib/schedule/tick.ts`) runs with every worker call and only enqueues idempotent
+jobs: discovery per active target once a month (`discovery_targets_per_day` a day; skipped without a Places
+key), a monthly retest and report for each subscriber on its anniversary day, one retest
+`retest_after_purchase_days` after a one-time purchase, daily retention, the follow-up and DNS tasks, and
+owner alerts (dead jobs, auto-pause, spend cap, items stuck in review) plus a morning digest. Portal >
+System shows the schedule, failing jobs with a retry button, and open alerts. Other modules add a task with
+`registerScheduled({ name, every, run })`.
+
+## Going live
+
+Everything stays a dry run until all of this is true. Do it in this order.
+
+1. **Supabase**: create the project; apply `supabase/migrations/*.sql` in order, then `supabase/seed.sql`
+   (never the local shim). Create the private storage bucket `reports`. Disable public sign-ups and add the
+   owner user (see "Only the owner can sign in").
+2. **Vercel**: deploy; set every variable in `.env.example`. `APP_SECRET` must be 32+ random characters
+   (signing refuses to work otherwise) and `CRON_SECRET` protects the worker route. The per-minute cron
+   needs a paid plan. Site tests and PDFs use headless Chromium: check one on Vercel, and if it fails there
+   run `npm run worker` on a small always-on machine instead.
+3. **Domain (GoDaddy DNS)**: point `intheanswer.ca` and `www` at Vercel. Leave the existing MX and SPF
+   records on the root domain alone (they belong to the GoDaddy mailbox). Add the records Resend gives for
+   `mail.intheanswer.ca` (SPF, DKIM, and the MX for receiving replies), plus a DMARC record. Then Portal >
+   Settings > "Check DNS now".
+4. **Resend**: add the domain `mail.intheanswer.ca`, turn on receiving, create an API key and a webhook to
+   `https://intheanswer.ca/api/resend/webhook` for the email events (sent, delivered, bounced, complained,
+   failed, suppressed, received). Set `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `RESEND_DOMAIN_ID`, and
+   `MAIL_REPLY_TO` to an address on the receiving domain so replies reach the portal.
+5. **Stripe**: two products with prices of exactly 200.00 CAD (one-time, and monthly); webhook to
+   `https://intheanswer.ca/api/stripe/webhook` for `checkout.session.completed`, `.expired`,
+   `.async_payment_succeeded`, `.async_payment_failed`, `invoice.paid`, `invoice.payment_failed`,
+   `customer.subscription.created`, `.updated`, `.deleted`, `charge.refunded`. Optional
+   `STRIPE_TAX_RATE_ID` for HST. Turn on the receipts Stripe emails so renewals get one.
+6. **Owner details**: the real name, registered business name, mailing address, phone and minimum term.
+   Live sending is refused while any is a placeholder.
+7. **Switch on**: `DRY_RUN=0` in the environment, then Portal > Settings > go live. Keep every message type
+   on REVIEW at first; the warm-up starts at 10 a day.
 
 ## Design
 

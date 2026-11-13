@@ -6,31 +6,28 @@ import { withRecording } from "./recorder";
  * POST https://places.googleapis.com/v1/places:searchText
  * Headers: X-Goog-Api-Key, X-Goog-FieldMask. Body: textQuery, locationBias, includedType, pageSize, pageToken.
  */
+/**
+ * Only the fields discovery reads (see decidePlace): nothing is requested that
+ * is not used. Ratings, review counts, phone numbers and types are not asked
+ * for here at all.
+ */
 export const PLACES_FIELD_MASK = [
   "places.id",
   "places.displayName",
   "places.formattedAddress",
-  "places.nationalPhoneNumber",
   "places.websiteUri",
-  "places.rating",
-  "places.userRatingCount",
-  "places.types",
   "places.businessStatus",
   "nextPageToken",
 ].join(",");
 
-/** Cost per request at the tier the field mask bills (nationalPhoneNumber → Enterprise). Confirm in Google Cloud billing. */
+/** Cost per request at the tier the field mask bills (websiteUri → Enterprise). Confirm in Google Cloud billing. */
 export const PLACES_COST_PER_REQUEST_USD = 0.035;
 
 export interface Place {
   id: string;
   displayName?: { text: string };
   formattedAddress?: string;
-  nationalPhoneNumber?: string;
   websiteUri?: string;
-  rating?: number;
-  userRatingCount?: number;
-  types?: string[];
   businessStatus?: string;
 }
 

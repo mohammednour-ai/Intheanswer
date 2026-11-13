@@ -65,6 +65,10 @@ export interface FullReportData {
   structuredData: Record<string, unknown> | null;
   kitHtml: string | null;
   regulatorNote: string;
+  /** Checkout link for the full service plan (from the clinic's teaser token). Falls back to the pricing page. */
+  monthlyUrl?: string | null;
+  /** The buyer is already on the full service plan: the closing offer is left out. */
+  onMonthlyPlan?: boolean;
 }
 
 export async function buildFullReportData(clinicId: string): Promise<FullReportData> {
@@ -74,6 +78,7 @@ export async function buildFullReportData(clinicId: string): Promise<FullReportD
     select c.name, c.site_name, ci.name as city, c.domain, c.place_id, se.regulator_note as reg, se.slug as sector, c.website,
            c.phone, c.address, c.phone_confirmed_on_site, c.address_confirmed_on_site
     from clinics c join cities ci on ci.id=c.city_id join sectors se on se.id=c.sector_id where c.id=${clinicId}`;
+  if (!c) throw new Error(`clinic ${clinicId} not found, or it has no city or sector`);
   const name = c.site_name ?? c.name;
   const [sc] = await sql<{ recommended: number; total: number; finished_at: Date | null }[]>`
     select s.recommended, s.total, t.finished_at from scores s join test_runs t on t.id=s.test_run_id
@@ -199,11 +204,11 @@ ${draft}
   <div class="finding"><div class="t">Structured data for your site</div><pre class="file">${esc(JSON.stringify(d.structuredData, null, 2))}</pre></div>
   ${d.kitHtml ? `<div class="finding">${d.kitHtml}</div>` : ""}
 </section>
-<section class="offer main" style="gap:12px">
-  <div class="row"><div><div class="label">Next step · Monthly plan</div><div class="price" style="font-size:22px">These files fix today. The monthly plan keeps you in the answer.</div></div><div class="price">200 CAD <span>per month</span></div></div>
+${d.onMonthlyPlan ? "" : `<section class="offer main" style="gap:12px">
+  <div class="row"><div><div class="label">Next step · Full service plan</div><div class="price" style="font-size:22px">These files fix today. On the full service plan we do the work for you.</div></div><div class="price">200 CAD <span>per month</span></div></div>
   <ul><li>We install everything: your website rebuilt or upgraded with every fix in place.</li><li>Two new answer pages each month, written for the questions patients ask.</li><li>Monthly retest of the same questions, with a before and after.</li><li>Competitor watch: which clinics were named beside you.</li></ul>
-  <a class="btn" href="https://intheanswer.ca/pricing">Start the monthly plan</a>
-</section>
+  <a class="btn" href="${esc(d.monthlyUrl ?? "https://intheanswer.ca/pricing")}">Start the full service plan</a>
+</section>`}
 <footer class="foot">
   ${copilotByline(o.name)}
   <div>This report reflects one assistant, the questions listed, on the test date. Assistants change what they recommend, and results can differ between assistants. These fixes make your clinic easier to understand and quote. No one can guarantee that a clinic will be named.</div>

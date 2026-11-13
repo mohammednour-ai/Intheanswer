@@ -86,8 +86,8 @@ ${reportHeader("AI Visibility Report · Preview")}
 ${LIVE_REVIEWS_MARKER}
 
 <section>
-  <h2>Two ways to fix it</h2>
-  <div class="offers">
+  <h2>${d.offers.reportsUrl ? "Three" : "Two"} ways to fix it</h2>
+  <div class="offers${d.offers.reportsUrl ? " three" : ""}">
     <div class="offer">
       <div class="label">One time</div>
       <div class="price">200 CAD</div>
@@ -95,16 +95,23 @@ ${LIVE_REVIEWS_MARKER}
       <p>All ${d.findingsTotal} findings and the fixes, ready for your web person to paste in. Includes one retest four weeks later.</p>
       <a class="btn" href="${esc(d.offers.oneTimeUrl)}">Get the full report</a>
     </div>
+    ${d.offers.reportsUrl ? `<div class="offer">
+      <div class="label">Monthly reports</div>
+      <div class="price">150 CAD <span class="dim">first month</span></div>
+      <div style="font-weight:600">then 50 CAD per month · minimum ${esc(d.offers.reportsMinTerm ?? "")}</div>
+      <p>The full report and fix files now, then a fresh retest and an updated report every month. Your web person installs the fixes.</p>
+      <a class="btn" href="${esc(d.offers.reportsUrl)}">Start monthly reports</a>
+    </div>` : ""}
     <div class="offer main">
-      <div class="row"><div class="label">Monthly plan</div><div class="pill">We do the work for you</div></div>
-      <div class="price">200 CAD <span>per month · minimum ${esc(d.offers.minTerm)}</span></div>
+      <div class="row"><div class="label">Full service plan</div><div class="pill">We do the work for you</div></div>
+      <div class="price">200 CAD <span>per month · ${esc(d.offers.minTerm.replace(/^(\d+) months?$/, "$1-month"))} contract</span></div>
       <ul>
-        <li>Your website rebuilt or upgraded, with every fix installed by us</li>
+        <li>Your website renovated, or taken over and run by us, with every fix installed</li>
         <li>The same questions retested every month, with a before and after</li>
         <li>A watch on the clinics named beside you, and what they changed</li>
         <li>Hours, notices and listings kept current all year</li>
       </ul>
-      <a class="btn" href="${esc(d.offers.monthlyUrl)}">Start the monthly plan</a>
+      <a class="btn" href="${esc(d.offers.monthlyUrl)}">Start the full service plan</a>
     </div>
   </div>
 </section>

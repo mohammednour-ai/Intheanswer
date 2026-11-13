@@ -11,6 +11,8 @@ export interface CrawledPage extends ParsedPage {
   depth: number;
   status: number;
   finalUrl: string;
+  /** False when the redirect target is not known (old cache row): no HTTPS or redirect conclusion may be drawn. */
+  finalUrlKnown?: boolean;
 }
 
 export interface Crawl {
@@ -64,7 +66,7 @@ export async function crawlSite(website: string, cap = 40): Promise<Crawl> {
     });
     if (!f.robotsAllowed || f.status !== 200 || !f.body || !/html/i.test(f.contentType || "text/html")) continue;
     const parsed = parsePage(f.finalUrl, f.body);
-    const page: CrawledPage = { ...parsed, depth: next.depth, status: f.status, finalUrl: f.finalUrl };
+    const page: CrawledPage = { ...parsed, depth: next.depth, status: f.status, finalUrl: f.finalUrl, finalUrlKnown: f.finalUrlKnown };
     pages.push(page);
     for (const l of parsed.links) {
       let host: string;
@@ -87,9 +89,7 @@ export async function crawlSite(website: string, cap = 40): Promise<Crawl> {
 
   const home = pages.find((p) => p.depth === 0) ?? null;
   let homeRedirectedToHttps: boolean | null = null;
-  if (home) {
-    if (website.startsWith("http://")) homeRedirectedToHttps = home.finalUrl.startsWith("https://");
-    else homeRedirectedToHttps = home.finalUrl.startsWith("https://") ? true : false;
-  }
+  // Only when we know where the request ended; otherwise it stays "not known".
+  if (home && home.finalUrlKnown !== false) homeRedirectedToHttps = home.finalUrl.startsWith("https://");
   return { website, domain, home, homeRedirectedToHttps, pages, statuses, notVisited, robotsTxt: robots.txt, robotsStatus: robots.status, cap };
 }

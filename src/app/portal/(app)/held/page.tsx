@@ -1,7 +1,10 @@
+import { requireOwner } from "@/lib/auth";
 import { listMessages, listHeldClinics } from "@/lib/portal/queries";
 import { MessageList } from "../MessageList";
+import { acceptSelfServeAction } from "./actions";
 
 export default async function HeldPage() {
+  await requireOwner();
   const items = await listMessages(["held", "blocked"]);
   const clinics = await listHeldClinics();
   return (
@@ -21,6 +24,7 @@ export default async function HeldPage() {
                 <th>City</th>
                 <th>Sector</th>
                 <th>Reason</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -30,6 +34,13 @@ export default async function HeldPage() {
                   <td>{c.city as string}</td>
                   <td>{c.sector as string}</td>
                   <td>{c.status_reason as string}</td>
+                  <td>
+                    {c.source === "self_serve" && String(c.status_reason ?? "").startsWith("self-serve:") ? (
+                      <form action={acceptSelfServeAction.bind(null, c.id as string)}>
+                        <button type="submit">Accept address and run</button>
+                      </form>
+                    ) : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

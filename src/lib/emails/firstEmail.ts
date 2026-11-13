@@ -20,24 +20,41 @@ export function firstEmailSubject(d: TeaserData): string {
     : `${d.clinic.name} was recommended in ${r} of ${t} AI answers for ${d.clinic.city} patients`;
 }
 
-/** Most often recommended other clinics across the answers (facts from the answers, neutral). */
-export function topNamedInstead(d: TeaserData, n = 3): string[] {
+function namedCounts(d: TeaserData): [string, number][] {
   const count = new Map<string, number>();
   for (const r of d.rows) for (const x of r.namedInstead) count.set(x, (count.get(x) ?? 0) + 1);
-  return [...count.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k);
+  return [...count.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+/** Most often recommended other clinics across the answers (facts from the answers, neutral). */
+export function topNamedInstead(d: TeaserData, n = 3): string[] {
+  return namedCounts(d).slice(0, n).map(([k]) => k);
+}
+
+/**
+ * The sentence naming other clinics. "Most often" is only said when it is
+ * exactly true: when the last clinic listed is tied with one left out, the
+ * list is not a ranking, so the sentence says "included" instead.
+ */
+export function namedInsteadLine(d: TeaserData, n = 3): string {
+  const ranked = namedCounts(d);
+  if (!ranked.length) return "";
+  const top = ranked.slice(0, n);
+  const tiedAtCut = ranked.length > n && ranked[n][1] === top[top.length - 1][1];
+  const names = top.map(([k]) => k).join(", ");
+  return tiedAtCut ? ` The clinics it named included ${names}.` : ` The clinics it named most often were ${names}.`;
 }
 
 export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUrl: string; reportUrl: string }): Draft {
   const claims: Claim[] = [];
   const example = d.rows.find((r) => r.status !== "recommended") ?? d.rows[0];
-  const others = topNamedInstead(d);
   const { recommended: r, total: t } = d.score;
 
   const whatCameBack =
     r === 0
       ? `It did not recommend ${d.clinic.name} in any of them.`
       : `It recommended ${d.clinic.name} in ${r} of them.`;
-  const namedLine = others.length ? ` The clinics it named most often were ${others.join(", ")}.` : "";
+  const namedLine = namedInsteadLine(d);
   claims.push({
     id: "email-result",
     where: "email",
@@ -62,9 +79,10 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
     ``,
     `If you want it fixed:`,
     `- Full report and fix files: 200 CAD, one time.`,
-    `- Monthly plan: 200 CAD a month. I rebuild or upgrade your site, install every fix and retest each month.`,
+    `- Monthly reports: 150 CAD for the first month, then 50 CAD a month. The same report, updated after a fresh retest each month.`,
+    `- Full service plan: 200 CAD a month. I renovate your site or take it over, install every fix and retest each month.`,
     ``,
-    `Either way, the report is yours to keep.`,
+    `Whichever you choose, the free report is yours to keep.`,
     ``,
     `${d.owner.name}`,
     `${d.owner.businessName}`,

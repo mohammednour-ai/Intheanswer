@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import { constantTimeEqual } from "@/lib/tokens";
 import { runWorkerBudget } from "@/lib/jobs/worker";
+import { scheduleTickSafely } from "@/lib/schedule/tick";
 import "@/lib/jobs/register";
 
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
   if (!secret || !constantTimeEqual(auth, `Bearer ${secret}`)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  await scheduleTickSafely(); // starts what is due (only ever enqueues); never throws
   // one job at a time, inside the function's time limit (maxDuration below)
   const res = await runWorkerBudget(270_000);
   return NextResponse.json(res);

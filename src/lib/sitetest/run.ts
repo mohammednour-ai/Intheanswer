@@ -45,7 +45,8 @@ export async function runSiteTest(website: string, opts: { cap: number; cacheDay
   let httpProbe: { finalUrl: string; status: number } | null = null;
   try {
     const f = await fetchPage(`http://${new URL(website).host}/`);
-    httpProbe = { finalUrl: f.finalUrl, status: f.status };
+    // without a known final address the redirect cannot be judged: "could not test", never a finding
+    httpProbe = f.finalUrlKnown ? { finalUrl: f.finalUrl, status: f.status } : null;
   } catch {
     httpProbe = null;
   }
