@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 export default function Contact() {
   const o = ownerDetails();
   return (
-    <article className={styles.prose} style={{ padding: "48px 0" }}>
+    <div className="wrap">
+      <article className={styles.prose}>
       <h1>Contact</h1>
       <p>In The Answer is run by {o.name}, {o.businessName}.</p>
       <p>
@@ -23,5 +24,6 @@ export default function Contact() {
       <h2>If you received a report from us</h2>
       <p>Reply to that email with any question. To stop all emails, use the link at the bottom of the email or the <Link href="/unsubscribe">unsubscribe page</Link>.</p>
     </article>
+    </div>
   );
 }

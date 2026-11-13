@@ -1,0 +1,128 @@
+/* How it works page. Shared bands, type and buttons come from ../site.module.css. */
+
+/* ---------- hero ---------- */
+.hero { padding: clamp(28px, 4vw, 64px) 0 clamp(44px, 5.5vw, 80px); }
+.heroRow { display: flex; flex-wrap: wrap; align-items: flex-start; gap: clamp(32px, 5vw, 80px); }
+.heroMain { flex: 5 1 440px; min-width: 0; display: flex; flex-direction: column; gap: clamp(20px, 2.4vw, 32px); }
+.h1 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(36px, 4.5vw, 60px); line-height: 1.04; letter-spacing: -.02em; }
+.heroLead { margin: 0; font-size: clamp(17px, 1.4vw, 20px); color: var(--ink-2); max-width: 34ch; text-wrap: pretty; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr)); gap: 12px; }
+.steps a { min-height: 44px; display: flex; flex-direction: column; gap: 4px; border-top: 2px solid var(--ink); padding-top: 10px; color: var(--ink); text-decoration: none; }
+.steps a:hover { color: var(--blue); }
+.stepsNum { font-family: var(--font-head); font-weight: 700; font-size: 28px; line-height: 1; color: var(--blue); }
+.stepsName { font-weight: 600; font-size: 15px; }
+
+.toc { flex: 4 1 320px; min-width: 0; background: var(--soft); border-radius: 20px; padding: clamp(18px, 2.2vw, 28px); }
+.tocTitle { margin: 0 0 6px; font-family: var(--font-body); font-size: 12.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.tocList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-weight: 600; font-size: 15.5px; }
+.tocList li { border-bottom: 1px solid var(--line-strong); }
+.tocList li:last-child { border-bottom: 0; }
+.tocList a { min-height: 46px; display: flex; align-items: center; gap: 12px; color: var(--ink); text-decoration: none; }
+.tocList a:hover { color: var(--blue); }
+.tocNum { flex: 0 0 18px; font-family: var(--font-head); color: var(--muted); }
+
+/* ---------- step sections ---------- */
+.row { display: flex; flex-wrap: wrap; align-items: flex-start; gap: clamp(24px, 4vw, 64px); }
+.rowEnd { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px clamp(24px, 4vw, 64px); }
+.stepMain { flex: 5 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.stepSide { flex: 4 1 340px; min-width: 0; }
+.stepTag { display: flex; align-items: baseline; gap: 14px; border-top: 2px solid var(--ink); padding-top: 16px; }
+.stepNum { font-family: var(--font-head); font-weight: 700; font-size: 32px; line-height: 1; color: var(--blue); }
+.text { margin: 0; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.text strong { color: var(--ink); }
+.unbalanced { text-wrap: wrap; }
+.headNarrow { display: flex; flex-direction: column; gap: 14px; max-width: 720px; }
+
+/* step 1: the example question */
+.example { background: var(--soft); border-radius: 20px; padding: clamp(16px, 2.2vw, 28px); display: flex; flex-direction: column; gap: 16px; }
+.ask { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.askLabel { font-size: 13px; font-weight: 600; color: var(--muted); }
+.bubble { margin: 0; max-width: 92%; background: var(--ink); color: #fff; border-radius: 18px 18px 4px 18px; padding: 14px 18px;
+  font-size: clamp(16px, 1.3vw, 18px); line-height: 1.4; font-weight: 500; }
+.facts { margin: 0; background: #fff; border-radius: 14px; padding: 4px 16px; display: flex; flex-direction: column; font-size: 15px; }
+.facts > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.facts > div:last-child { border-bottom: 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; font-weight: 600; text-align: right; }
+
+/* step 2: the three results */
+.results { display: flex; flex-direction: column; gap: 10px; }
+.resultsTitle { margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 600; letter-spacing: 0; color: var(--muted); }
+.resultList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border: 1px solid var(--line-strong); border-radius: 14px; }
+.resultList li { display: flex; align-items: center; gap: 14px; padding: 16px; border-bottom: 1px solid var(--line); }
+.resultList li:last-child { border-bottom: 0; }
+.resultList svg { flex: 0 0 44px; }
+.resultText { display: flex; flex-direction: column; }
+.resultName { font-family: var(--font-head); font-weight: 700; font-size: 21px; line-height: 1.25; }
+.resultDesc { font-size: 14.5px; color: var(--ink-2); }
+.rec { color: var(--blue); }
+.listed { color: var(--warn); }
+.notNamed { color: var(--bad); }
+
+/* step 3: two groups of checks */
+.checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: clamp(16px, 2vw, 28px); }
+.checkCard { border: 1.5px solid var(--line-strong); border-radius: 20px; padding: clamp(18px, 2.2vw, 28px); display: flex; flex-direction: column; gap: 12px; }
+.cardTitle { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: 22px; line-height: 1.2; letter-spacing: 0; }
+.cardIntro { margin: 0; font-size: 15px; color: var(--muted); }
+.checkList { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 2px solid var(--ink); }
+.checkList li { display: flex; align-items: center; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.checkList li:last-child { border-bottom: 0; }
+.checkList .top { align-items: flex-start; }
+.dash { flex: 0 0 20px; width: 20px; height: 8px; border-radius: 4px; background: #9aa4b2; }
+.top .dash { margin-top: 8px; }
+.subNote { display: block; font-size: 14px; color: var(--muted); }
+.arrowLink { margin-top: auto; align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 600; font-size: 15px; text-underline-offset: 3px; }
+.arrowLink:hover { color: var(--blue); }
+
+/* step 4: three rules */
+.rules { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: clamp(16px, 2vw, 28px); }
+.rules li { background: var(--soft); border-radius: 20px; padding: clamp(18px, 2.2vw, 28px); display: flex; flex-direction: column; gap: 10px; }
+.rules p { margin: 0; color: var(--ink-2); text-wrap: pretty; }
+.rules strong { color: var(--ink); white-space: nowrap; }
+
+/* ---------- limits (ink band) ---------- */
+.limits { padding: clamp(52px, 7vw, 104px) 0; }
+.limitsMain { flex: 6 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.limitsSide { flex: 4 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.limitsLabel { margin: 0; font-family: var(--font-body); font-size: 12.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #7fa2ff; }
+.limitsStatement { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(28px, 3.5vw, 48px); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+.snapshot { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.snapshot li { border-top: 2px solid #7fa2ff; padding-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.snapNum { font-family: var(--font-head); font-weight: 700; font-size: clamp(34px, 4vw, 52px); line-height: 1; color: #7fa2ff; white-space: nowrap; }
+.snapOr { font-size: .36em; font-weight: 500; color: var(--line-strong); padding: 0 5px; }
+.snapLabel { font-size: 14px; color: var(--line); }
+.limitsText { margin: 0; font-size: 17px; color: var(--line); text-wrap: pretty; }
+
+/* ---------- email rules ---------- */
+.emailMain { flex: 4 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.emailRules { flex: 6 1 440px; min-width: 0; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 2px solid var(--ink); }
+.emailRules li { display: flex; gap: 16px; padding: 16px 0; border-bottom: 1px solid var(--line-strong); }
+.emailNum { flex: 0 0 22px; font-family: var(--font-head); font-weight: 700; font-size: 22px; line-height: 1.2; color: var(--blue); }
+.emailText { text-wrap: pretty; }
+.emailText a { color: var(--ink); font-weight: 600; text-underline-offset: 3px; }
+
+/* ---------- what happens if I buy ---------- */
+.buyHead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 32px; }
+.buyTitle { display: flex; flex-direction: column; gap: 8px; }
+.blueLink { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; color: var(--blue); font-weight: 600; font-size: 15px; text-underline-offset: 3px; }
+.blueLink:hover { color: var(--blue-hover); }
+.buy { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: clamp(16px, 1.8vw, 24px); }
+.buy li { background: #fff; border-radius: 20px; padding: clamp(20px, 2.2vw, 28px); display: flex; flex-direction: column; gap: 10px; }
+.buy .buyMain { border: 2px solid var(--ink); }
+.buyName { margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.buyMain .buyName { color: var(--ink); }
+.buyWho { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: 21px; line-height: 1.25; }
+.buyText { margin: 0; color: var(--ink-2); text-wrap: pretty; }
+.weDo { display: inline-flex; align-items: center; border-radius: 999px; background: var(--blue); color: #fff; padding: 3px 12px; font-weight: 600; font-size: 15px; }
+
+/* ---------- closing band ---------- */
+.closeRow { display: flex; flex-wrap: wrap; align-items: center; gap: clamp(28px, 5vw, 80px); }
+.closeMain { flex: 5 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.closeH2 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(28px, 3.5vw, 48px); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+.closeLead { margin: 0; color: var(--ink-2); max-width: 52ch; text-wrap: pretty; }
+.bars { flex: 4 1 280px; min-width: 0; display: flex; flex-direction: column; gap: clamp(12px, 1.6vw, 22px); }
+.bar { display: block; height: clamp(44px, 4.4vw, 60px); border-radius: 999px; background: #9aa4b2; }
+.barTop { width: 81%; }
+.barBottom { width: 64%; }
+.barYou { width: 100%; display: flex; align-items: center; padding: 0 clamp(20px, 2.2vw, 30px); background: var(--blue); color: #fff;
+  font-family: var(--font-head); font-weight: 700; font-size: clamp(20px, 2vw, 26px); }

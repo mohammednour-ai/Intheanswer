@@ -1,31 +1,107 @@
-.header { border-bottom: 1px solid var(--line); }
-.bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 64px; flex-wrap: wrap; }
-.brand { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-head); font-weight: 700; font-size: 1.2rem; color: var(--ink); text-decoration: none; }
-.nav { display: flex; gap: 4px; list-style: none; margin: 0; padding: 0; flex-wrap: wrap; }
-.nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 10px; color: var(--ink-2); text-decoration: none; font-weight: 600; font-size: .95rem; }
+/*
+ * Public site system (design direction A, "The answer, shown").
+ * Brand: white ground, ink, one blue accent, Space Grotesk headings, Inter text. No gradients.
+ * Page-specific styles live in each page's own module; this file holds what every page shares.
+ */
+
+/* ---------- layout ---------- */
+.container { max-width: 1120px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 40px); }
+.band { padding: clamp(48px, 6.5vw, 96px) 0; }
+.bandRule { border-top: 1px solid var(--line); }
+.bandSoft { background: var(--soft); }
+.bandInk { background: var(--ink); color: #fff; }
+.bandInk a { color: #fff; }
+.stack { display: flex; flex-direction: column; gap: clamp(24px, 3vw, 40px); }
+.split { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px clamp(24px, 4vw, 64px); }
+.split > * { flex: 1 1 380px; min-width: 0; }
+
+/* ---------- type ---------- */
+.eyebrow { font-size: 12.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.bandInk .eyebrow { color: var(--line-strong); }
+.h2 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(28px, 3vw, 40px); line-height: 1.1; letter-spacing: -.015em; text-wrap: balance; }
+.lead { font-size: clamp(17px, 1.4vw, 19px); color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.body2 { color: var(--ink-2); text-wrap: pretty; }
+.fine { margin: 0; font-size: 13.5px; color: var(--muted); }
+
+/* ---------- buttons ---------- */
+.btnPrimary, .btnOutline {
+  min-height: 52px; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 0 24px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 16px;
+}
+.btnPrimary { background: var(--blue); color: #fff; border: 1.5px solid var(--blue); }
+.btnPrimary:hover { background: var(--blue-hover); border-color: var(--blue-hover); }
+.btnOutline { background: #fff; color: var(--ink); border: 1.5px solid var(--ink); }
+.btnOutline:hover { color: var(--blue); border-color: var(--blue); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+
+/* ---------- header ---------- */
+.header { border-bottom: 1px solid var(--line); background: #fff; }
+.bar { display: flex; align-items: center; gap: 8px clamp(12px, 2.4vw, 32px); flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+.brand { min-height: 44px; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink);
+  font-family: var(--font-head); font-weight: 700; font-size: 20px; letter-spacing: -.2px; white-space: nowrap; margin-right: auto; }
+.nav { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px clamp(12px, 2vw, 28px); }
+.nav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; font-weight: 500; font-size: 14.5px; white-space: nowrap; }
 .nav a:hover { color: var(--blue); }
-.hero { padding: 48px 0 32px; display: grid; gap: 32px; grid-template-columns: 1fr; align-items: start; }
-@media (min-width: 900px) { .hero { grid-template-columns: 1.1fr .9fr; padding: 72px 0 48px; } }
-.lead { font-size: 1.15rem; color: var(--ink-2); max-width: 56ch; }
-.box { border: 1.5px solid var(--ink); border-radius: 12px; padding: 20px; background: #fff; }
-.section { padding: 40px 0; border-top: 1px solid var(--line); }
-.grid3 { display: grid; gap: 16px; grid-template-columns: 1fr; }
-@media (min-width: 800px) { .grid3 { grid-template-columns: repeat(3, 1fr); } }
-.step { background: var(--soft); border-radius: 10px; padding: 18px; }
-.num { font-family: var(--font-head); font-weight: 700; font-size: 1.5rem; color: var(--blue); }
-.offers { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: stretch; }
-@media (min-width: 720px) { .offers { grid-template-columns: 1fr 1fr; } .offerMain { grid-column: 1 / -1; } }
-@media (min-width: 1020px) { .offers { grid-template-columns: 4fr 4fr 5fr; } .offerMain { grid-column: auto; } }
-.offer { border: 1.5px solid #c9d1dc; border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 8px; }
-.offerMain { background: var(--blue); border-color: var(--blue); color: #fff; }
-.offerMain a { color: #fff; }
-.price { font-family: var(--font-head); font-weight: 700; font-size: 1.8rem; }
-.offerMain .price { font-size: 2.2rem; }
-.tag { align-self: flex-start; background: #fff; color: var(--ink); font-size: .8rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
-.btnLight { background: #fff; color: var(--ink) !important; border-color: #fff; }
-.footer { border-top: 2px solid var(--ink); margin-top: 48px; padding: 24px 0 40px; font-size: .9rem; color: var(--ink-2); }
-.footer a { color: var(--ink-2); }
-.prose { max-width: 70ch; }
+.nav a[aria-current="page"] { text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 2px; }
+.headerCta { min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; background: var(--blue); color: #fff;
+  font-weight: 600; font-size: 14.5px; text-decoration: none; white-space: nowrap; }
+.headerCta:hover { background: var(--blue-hover); }
+@media (max-width: 719px) {
+  /* phone: brand and button on the first row, the four links spread across the second */
+  .navWrap { order: 3; flex: 1 0 100%; }
+  .nav { justify-content: space-between; }
+}
+@media (min-width: 720px) { .navWrap { order: 0; } .headerCta { order: 1; } }
+
+/* ---------- footer ---------- */
+.footer { border-top: 2px solid var(--ink); padding: clamp(28px, 3.4vw, 44px) 0 clamp(32px, 4vw, 52px); }
+.footerGrid { display: flex; flex-wrap: wrap; gap: 24px clamp(32px, 6vw, 96px); }
+.footerWho { flex: 3 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14.5px; color: var(--ink-2); }
+.footerWho p { margin: 0; }
+.footerWho a { color: var(--ink); text-underline-offset: 3px; white-space: nowrap; }
+.footerBrand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-family: var(--font-head); font-weight: 700; font-size: 20px; letter-spacing: -.2px; }
+.footerNav { flex: 2 1 280px; min-width: 0; }
+.footerNav ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; font-size: 14.5px; font-weight: 500; }
+.footerNav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-underline-offset: 3px; }
+
+/* ---------- plan cards (home and pricing) ---------- */
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: clamp(16px, 1.8vw, 24px); }
+.plan { grid-row: span 5; display: grid; grid-template-rows: subgrid; row-gap: 0; border: 1.5px solid var(--line-strong); border-radius: 20px; padding: clamp(20px, 2.2vw, 28px); background: #fff; }
+.planMain { background: var(--ink); border-color: var(--ink); color: #fff; }
+.planHead { padding-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+.planName { margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.planMain .planName { color: var(--line-strong); }
+.planPrice { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: 44px; line-height: 1; letter-spacing: -.02em; }
+.planSub { margin: 0; font-size: 15px; color: var(--ink-2); }
+.planMain .planSub { color: var(--line); }
+.planRow { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; gap: 6px; }
+.planRowFirst { border-top: 2px solid var(--ink); }
+.planMain .planRow { border-bottom-color: var(--muted); }
+.planMain .planRowFirst { border-top-color: #fff; }
+.planRow dt { font-size: 12.5px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.planMain .planRow dt { color: var(--line-strong); }
+.planRow dd { margin: 0; }
+.planValue { font-family: var(--font-head); font-weight: 700; font-size: 21px; line-height: 1.25; }
+.planRetest { font-weight: 600; font-size: 17px; line-height: 1.35; }
+.weDo { display: inline-flex; align-items: center; min-height: 32px; padding: 2px 14px; border-radius: 999px; background: var(--blue); color: #fff;
+  font-family: var(--font-head); font-weight: 700; font-size: 19px; line-height: 1.25; }
+.meter { display: flex; gap: 3px; margin-bottom: 6px; }
+.meter span { flex: 1; height: 10px; border-radius: 3px; background: var(--line); }
+.meter .on { background: var(--ink); }
+.planMain .meter span { background: var(--ink-2); }
+.planMain .meter .on { background: #fff; }
+.planList { margin: 0; padding: 16px 0 0 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; color: var(--ink-2); }
+.planMain .planList { color: var(--line); }
+.glance { list-style: none; margin: 18px 0 0; padding: 0; border-top: 2px solid var(--ink); display: flex; flex-direction: column; font-size: 15px; }
+.glance li { padding: 10px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; }
+.glance strong { font-weight: 700; }
+@media (min-width: 720px) { .glance { display: none; } }
+
+/* ---------- kept for the simpler pages (contact, privacy, crawler, unsubscribe, sample) ---------- */
+.prose { max-width: 70ch; padding: clamp(40px, 5vw, 72px) 0; }
+.prose h1 { font-size: clamp(34px, 4vw, 52px); letter-spacing: -.02em; margin-bottom: .4em; }
 .prose h2 { margin-top: 1.6em; }
+.section { padding: 40px 0; border-top: 1px solid var(--line); }
+.box { border: 1.5px solid var(--ink); border-radius: 12px; padding: 20px; background: #fff; }
 .frame { width: 100%; height: 900px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
 .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }

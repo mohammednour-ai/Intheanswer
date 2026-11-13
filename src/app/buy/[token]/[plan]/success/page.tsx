@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { ownerDetails } from "@/lib/env";
 import { isPlan, resolveBuyToken } from "@/lib/payments/checkout";
 import { Shell } from "../../../Shell";
+import s from "../../../buy.module.css";
 
 export const metadata: Metadata = { title: "Thank you", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -23,8 +24,8 @@ export default async function BuySuccess(props: PageProps<"/buy/[token]/[plan]/s
   const o = ownerDetails();
   return (
     <Shell>
-      <h1 style={{ marginTop: 24 }}>Thank you</h1>
-      <p className={paid ? "pill pill-ok" : "pill pill-blue"} role="status">
+      <h1>Thank you</h1>
+      <p className={`${s.notice} ${paid ? s.noticeOk : s.noticeBlue}`} role="status">
         {paid ? "Payment received." : "Your payment is being confirmed. This can take a minute."}
       </p>
       <p>A receipt is sent to the email address you gave at payment.</p>

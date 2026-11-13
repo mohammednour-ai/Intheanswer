@@ -1,0 +1,65 @@
+/* Pricing page. Shared bands, type and the plan cards come from ../site.module.css. */
+
+/* ---------- hero ---------- */
+.hero { padding: clamp(32px, 4.4vw, 64px) 0 clamp(32px, 4vw, 56px); }
+.heroRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: clamp(16px, 3vw, 48px); }
+.heroMain { flex: 5 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.h1 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(36px, 4.5vw, 60px); line-height: 1.04; letter-spacing: -.02em; text-wrap: balance; }
+.accent { color: var(--blue); }
+.heroSide { flex: 3 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.heroLead { margin: 0; font-size: clamp(16px, 1.3vw, 18px); color: var(--ink-2); text-wrap: pretty; }
+.textLink { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); font-weight: 600; text-underline-offset: 3px; }
+.textLink:hover { color: var(--blue); }
+
+/* ---------- questions about price ---------- */
+.sectionHead { display: flex; flex-direction: column; gap: 8px; }
+.qs { display: flex; flex-direction: column; border-bottom: 1px solid var(--line-strong); }
+.q { border-top: 1px solid var(--line-strong); padding: clamp(20px, 2.4vw, 32px) 0; display: flex; flex-wrap: wrap; gap: 14px clamp(24px, 4vw, 64px); }
+.q:first-child { border-top: 2px solid var(--ink); }
+.qHead { flex: 2 1 300px; min-width: 0; display: flex; align-items: baseline; gap: 14px; }
+.qNum { font-family: var(--font-head); font-weight: 700; font-size: 26px; line-height: 1; color: var(--blue); }
+.qTitle { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: 22px; line-height: 1.25; letter-spacing: 0; text-wrap: balance; }
+.qBody { flex: 3 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.note { margin: 0; color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.strong { margin: 0; font-weight: 600; }
+
+/* white table of rows */
+.table { list-style: none; margin: 0; padding: 0; background: #fff; border-radius: 14px; display: flex; flex-direction: column; }
+.table li { padding: 12px 18px; border-bottom: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; }
+.table li:last-child { border-bottom: 0; }
+.tableStacked li { padding: 14px 18px; flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; gap: 2px; }
+.rowName { font-weight: 600; }
+.rowVal { color: var(--ink-2); }
+
+/* side-by-side tiles */
+.pair { display: flex; flex-wrap: wrap; gap: 12px; }
+.tile { flex: 1 1 220px; min-width: 0; background: #fff; border-radius: 14px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+.tileInk { background: var(--ink); color: #fff; }
+.tileLabel { font-size: 12.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.tileInk .tileLabel { color: var(--line-strong); }
+.tileHead { font-family: var(--font-head); font-weight: 700; font-size: 19px; line-height: 1.25; }
+.tileText { font-size: 15px; color: var(--ink-2); }
+.tileInk .tileText { color: var(--line); }
+.tilePlain { font-size: 16px; color: var(--ink); }
+
+.check { margin: 0; display: flex; align-items: flex-start; gap: 10px; font-weight: 600; max-width: 60ch; }
+.check svg { flex: 0 0 20px; margin-top: 2px; }
+
+.chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.chips li { background: #fff; border: 1px solid var(--line-strong); border-radius: 999px; padding: 6px 14px 6px 10px; display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+.chips svg { flex: 0 0 16px; }
+
+.mail { align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; color: var(--blue); font-weight: 600; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.mail:hover { color: var(--blue-hover); }
+
+/* ---------- closing band ---------- */
+.closeRow { display: flex; flex-wrap: wrap; align-items: center; gap: clamp(28px, 5vw, 80px); }
+.closeMain { flex: 5 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+.closeH2 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(28px, 3.5vw, 48px); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+.closeLead { margin: 0; color: var(--ink-2); max-width: 52ch; text-wrap: pretty; }
+.bars { flex: 4 1 280px; min-width: 0; display: flex; flex-direction: column; gap: clamp(12px, 1.6vw, 22px); }
+.bar { display: block; height: clamp(44px, 4.4vw, 60px); border-radius: 999px; background: #9aa4b2; }
+.barTop { width: 81%; }
+.barBottom { width: 64%; }
+.barYou { width: 100%; display: flex; align-items: center; padding: 0 clamp(20px, 2.2vw, 30px); background: var(--blue); color: #fff;
+  font-family: var(--font-head); font-weight: 700; font-size: clamp(20px, 2vw, 26px); }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ownerDetails } from "@/lib/env";
 import { markSvg } from "@/lib/brand";
 import styles from "./site.module.css";
+import { NavLinks } from "./NavLinks";
 
 const NAV = [
   { href: "/how-it-works", label: "How it works" },
@@ -38,31 +39,44 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
     <>
       <a href="#main" className="sr-only">Skip to content</a>
       <header className={styles.header}>
-        <div className={`wrap ${styles.bar}`}>
+        <div className={`${styles.container} ${styles.bar}`}>
           <Link href="/" className={styles.brand}>
             <span dangerouslySetInnerHTML={{ __html: markSvg({ width: 30 }) }} />
             In The Answer
           </Link>
-          <nav aria-label="Main">
+          <nav aria-label="Main" className={styles.navWrap}>
             <ul className={styles.nav}>
-              {NAV.map((n) => (
-                <li key={n.href}><Link href={n.href}>{n.label}</Link></li>
-              ))}
+              <NavLinks items={NAV} />
             </ul>
           </nav>
+          <Link href="/#get-report" className={styles.headerCta}>Free report</Link>
         </div>
       </header>
-      <main id="main" className="wrap">{children}</main>
+      <main id="main">{children}</main>
       <footer className={styles.footer}>
-        <div className="wrap">
-          <p>
-            <strong>In The Answer</strong> is run by {o.name}, {o.businessName.replace(/\.$/, "")}.<br />
-            {o.mailingAddress} · <a href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}>{o.phone}</a> · <a href={`mailto:${o.email}`}>{o.email}</a>
-          </p>
-          <p>Hours: Monday to Friday, 9:00 am to 5:00 pm (Toronto time). Service in English. Serving clinics across Ontario.</p>
-          <p>
-            <Link href="/privacy">Privacy</Link> · <Link href="/unsubscribe">Unsubscribe</Link> · <Link href="/bot">About our crawler</Link> · <Link href="/contact">Contact</Link>
-          </p>
+        <div className={`${styles.container} ${styles.footerGrid}`}>
+          <div className={styles.footerWho}>
+            <div className={styles.footerBrand}>
+              <span dangerouslySetInnerHTML={{ __html: markSvg({ width: 30 }) }} />
+              In The Answer
+            </div>
+            <p>In The Answer is run by {o.name}, {o.businessName.replace(/\.$/, "")}.</p>
+            <p>
+              {o.mailingAddress} · <a href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}>{o.phone}</a> · <a href={`mailto:${o.email}`}>{o.email}</a>
+            </p>
+            <p>Hours: Monday to Friday, 9:00 am to 5:00 pm (Toronto time). Service in English. Serving clinics across Ontario.</p>
+          </div>
+          <nav aria-label="Footer" className={styles.footerNav}>
+            <ul>
+              <li><Link href="/how-it-works">How it works</Link></li>
+              <li><Link href="/privacy">Privacy</Link></li>
+              <li><Link href="/pricing">Pricing</Link></li>
+              <li><Link href="/unsubscribe">Unsubscribe</Link></li>
+              <li><Link href="/sample">Sample report</Link></li>
+              <li><Link href="/bot">About our crawler</Link></li>
+              <li><Link href="/contact">Contact</Link></li>
+            </ul>
+          </nav>
         </div>
       </footer>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd()).replace(/</g, "\\u003c") }} />

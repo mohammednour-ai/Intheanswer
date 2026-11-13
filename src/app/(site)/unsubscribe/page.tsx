@@ -9,7 +9,8 @@ export const metadata: Metadata = {
 export default async function Unsubscribe(props: PageProps<"/unsubscribe">) {
   const sp = await props.searchParams;
   return (
-    <section style={{ padding: "48px 0", maxWidth: 560 }}>
+    <div className="wrap">
+      <section style={{ padding: "clamp(40px, 5vw, 72px) 0", maxWidth: 560 }}>
       <h1>Unsubscribe</h1>
       {sp.done ? (
         <p role="status">Done. If that address was on our list, it will not receive any more emails from In The Answer.</p>
@@ -24,5 +25,6 @@ export default async function Unsubscribe(props: PageProps<"/unsubscribe">) {
         </form>
       )}
     </section>
+    </div>
   );
 }

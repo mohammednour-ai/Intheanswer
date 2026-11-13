@@ -10,7 +10,8 @@ export default async function UnsubscribeToken(props: PageProps<"/unsubscribe/[t
   const sp = await props.searchParams;
   const email = verifyUnsubscribeToken(token);
   return (
-    <section style={{ padding: "48px 0", maxWidth: 560 }}>
+    <div className="wrap">
+      <section style={{ padding: "clamp(40px, 5vw, 72px) 0", maxWidth: 560 }}>
       <h1>Unsubscribe</h1>
       {!email ? (
         <p>This link is not valid. You can unsubscribe with your email address on the <Link href="/unsubscribe">unsubscribe page</Link>.</p>
@@ -24,5 +25,6 @@ export default async function UnsubscribeToken(props: PageProps<"/unsubscribe/[t
         </form>
       )}
     </section>
+    </div>
   );
 }

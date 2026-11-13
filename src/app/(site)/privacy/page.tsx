@@ -11,7 +11,8 @@ export const metadata: Metadata = {
 export default function Privacy() {
   const o = ownerDetails();
   return (
-    <article className={styles.prose} style={{ padding: "48px 0" }}>
+    <div className="wrap">
+      <article className={styles.prose}>
       <h1>Privacy</h1>
       <p>In The Answer is run by {o.name}, {o.businessName}, {o.mailingAddress}. Questions about this page: <a href={`mailto:${o.email}`}>{o.email}</a>.</p>
 
@@ -40,5 +41,6 @@ export default function Privacy() {
       <h2>Service providers</h2>
       <p>We use hosting, database, email, payment and AI providers to run the service. They process information for us under their own terms and may store it outside Canada.</p>
     </article>
+    </div>
   );
 }

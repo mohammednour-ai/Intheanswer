@@ -9,7 +9,8 @@ export const metadata: Metadata = {
 
 export default function Sample() {
   return (
-    <section style={{ padding: "48px 0" }}>
+    <div className="wrap">
+      <section style={{ padding: "clamp(40px, 5vw, 72px) 0" }}>
       <h1>Sample report</h1>
       <p className={styles.lead}>
         <strong>This is a sample. The clinic, the other clinics named and the answers are invented</strong> to show the
@@ -18,5 +19,6 @@ export default function Sample() {
       <p><a href="/sample-report" target="_blank" rel="noreferrer">Open the sample in its own tab</a> · <Link href="/#get-report">Get your own free report</Link></p>
       <iframe className={styles.frame} src="/sample-report" title="Sample report for an invented clinic" />
     </section>
+    </div>
   );
 }

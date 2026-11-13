@@ -8,7 +8,8 @@ export const metadata: Metadata = {
 
 export default function Bot() {
   return (
-    <article className={styles.prose} style={{ padding: "48px 0" }}>
+    <div className="wrap">
+      <article className={styles.prose}>
       <h1>About our crawler</h1>
       <p><code>InTheAnswerBot</code> reads the public websites of Ontario clinics to prepare a report for that clinic about its own site.</p>
       <ul>
@@ -18,5 +19,6 @@ export default function Bot() {
       </ul>
       <p>Questions: <a href="mailto:hello@intheanswer.ca">hello@intheanswer.ca</a>.</p>
     </article>
+    </div>
   );
 }

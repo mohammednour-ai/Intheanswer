@@ -1,19 +1,45 @@
+import Link from "next/link";
 import { markSvg } from "@/lib/brand";
 import { ownerDetails } from "@/lib/env";
+import site from "../(site)/site.module.css";
+import s from "./buy.module.css";
 
-/** Plain frame for the checkout and intake pages: brand, content, who we are. */
-export function Shell({ children }: { children: React.ReactNode }) {
+/**
+ * Plain frame for the checkout and intake pages: the brand, the content, who we are.
+ * No site navigation, so nothing pulls a buyer away mid-checkout. `wide` is the two-column
+ * checkout; everything else (other checkout states, intake) reads in one narrow column.
+ */
+export function Shell({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
   const o = ownerDetails();
   return (
-    <main className="wrap" style={{ maxWidth: 720, paddingTop: 32, paddingBottom: 64 }}>
-      <div className="row" style={{ gap: 10 }}>
-        <span dangerouslySetInnerHTML={{ __html: markSvg({ width: 28 }) }} />
-        <strong style={{ fontFamily: "var(--font-head)" }}>In The Answer</strong>
-      </div>
-      {children}
-      <p className="small muted" style={{ marginTop: 32 }}>
-        In The Answer · {o.businessName} · {o.mailingAddress} · <a href={`mailto:${o.email}`}>{o.email}</a>
-      </p>
-    </main>
+    <>
+      <header className={site.header}>
+        <div className={`${site.container} ${s.headBar}`}>
+          <Link href="/" className={site.brand}>
+            <span className={s.mark} dangerouslySetInnerHTML={{ __html: markSvg({ width: 30 }) }} />
+            In The Answer
+          </Link>
+        </div>
+      </header>
+      <main className={s.main}>
+        <div className={`${site.container} ${s.content}${wide ? "" : ` ${s.narrow}`}`}>{children}</div>
+      </main>
+      <footer className={s.footer}>
+        <div className={`${site.container} ${s.footIn}`}>
+          <div className={s.footText}>
+            <p>In The Answer is run by {o.name}, {o.businessName}.</p>
+            <p>
+              {o.mailingAddress} · {o.phone} · <a href={`mailto:${o.email}`}>{o.email}</a>
+            </p>
+          </div>
+          <nav aria-label="Footer">
+            <ul className={s.footNav}>
+              <li><Link href="/privacy">Privacy</Link></li>
+              <li><Link href="/contact">Contact</Link></li>
+            </ul>
+          </nav>
+        </div>
+      </footer>
+    </>
   );
 }

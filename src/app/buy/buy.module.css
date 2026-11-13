@@ -1,0 +1,112 @@
+/* Checkout and intake frame (design direction A). Shared tokens come from globals.css. */
+
+/* ---------- frame ---------- */
+.headBar { padding-top: 10px; padding-bottom: 10px; }
+.mark { display: inline-flex; }
+.main { padding: clamp(20px, 2.8vw, 40px) 0 clamp(48px, 6.5vw, 96px); }
+.content { display: flex; flex-direction: column; gap: clamp(20px, 2.6vw, 36px); }
+.narrow { gap: 20px; }
+.narrow > * { max-width: 760px; }
+.footer { border-top: 2px solid var(--ink); padding: clamp(20px, 2.4vw, 32px) 0 clamp(24px, 3vw, 40px); }
+.footIn { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px 32px; }
+.footText { flex: 1 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; color: var(--ink-2); }
+.footText p { margin: 0; }
+.footText a, .footNav a { color: var(--ink); text-underline-offset: 3px; }
+.footNav { list-style: none; margin: 0; padding: 0; display: flex; gap: 24px; font-size: 14.5px; font-weight: 500; }
+.footNav a { min-height: 44px; display: inline-flex; align-items: center; }
+
+/* Narrow pages (other checkout states, intake): heading and body type of the design. */
+.narrow h1 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(32px, 4vw, 52px); line-height: 1.06; letter-spacing: -.02em; text-wrap: balance; }
+.narrow > p:not([class]) { margin: 0; max-width: 62ch; color: var(--ink-2); text-wrap: pretty; }
+.narrow p a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
+
+/* ---------- heading block ---------- */
+.intro { display: flex; flex-direction: column; gap: 10px; }
+.back {
+  align-self: flex-start; min-height: 44px; display: inline-flex; align-items: center; gap: 8px;
+  color: var(--ink); font-weight: 600; font-size: 15px; text-underline-offset: 3px;
+}
+.content a.back { color: var(--ink); }
+.back:hover { color: var(--blue); }
+.h1 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(36px, 4.5vw, 60px); line-height: 1.04; letter-spacing: -.02em; text-wrap: balance; }
+.for { margin: 0; font-size: clamp(16px, 1.3vw, 18px); color: var(--ink-2); }
+
+/* ---------- notices ---------- */
+.notice { margin: 0; max-width: 62ch; border-radius: 12px; padding: 14px 18px; font-weight: 600; border: 1.5px solid; }
+.noticeWarn { background: var(--warn-soft); border-color: #f2d7ae; color: var(--warn); }
+.noticeOk { background: var(--ok-soft); border-color: #bfe2cc; color: var(--ok); }
+.noticeBlue { background: var(--blue-soft); border-color: #c9d6fb; color: var(--blue); }
+
+/* ---------- two columns ---------- */
+.layout { display: flex; flex-wrap: wrap; align-items: flex-start; gap: clamp(24px, 3.4vw, 48px); }
+.terms {
+  flex: 3 1 440px; min-width: 0; border: 1.5px solid var(--line-strong); border-radius: 20px;
+  padding: clamp(20px, 2.6vw, 32px); display: flex; flex-direction: column; gap: 18px;
+}
+.label { margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.priceLine { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.price { font-family: var(--font-head); font-weight: 700; font-size: clamp(44px, 4.6vw, 60px); line-height: 1; letter-spacing: -.02em; white-space: nowrap; }
+.per { font-size: 17px; font-weight: 600; }
+.hst { font-size: 15px; color: var(--muted); white-space: nowrap; }
+
+.rows { list-style: none; margin: 0; padding: 0; border-top: 2px solid var(--ink); display: flex; flex-direction: column; }
+.row { padding: 14px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-wrap: wrap; gap: 4px 20px; }
+.rowLabel { flex: 0 0 150px; font-size: 12.5px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+.rowValue { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 8px; text-wrap: pretty; }
+.rowStrong { font-weight: 700; }
+.big { font-family: var(--font-head); font-weight: 700; font-size: 21px; line-height: 1.25; }
+.weDo {
+  align-self: flex-start; display: inline-block; background: var(--blue); color: #fff; border-radius: 999px; padding: 4px 14px;
+  font-family: var(--font-head); font-weight: 700; font-size: 17px; line-height: 1.35;
+}
+.meter { display: flex; gap: 3px; max-width: 360px; }
+.meter span { flex: 1; height: 10px; border-radius: 3px; background: var(--line); }
+.meter span.on { background: var(--ink); }
+
+.fine { margin: 0; font-size: 14px; color: var(--ink-2); text-wrap: pretty; }
+.fine a, .ask a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
+.form { margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.pay {
+  width: 100%; min-height: 56px; border: 0; border-radius: 8px; background: var(--blue); color: #fff;
+  font-family: var(--font-body); font-weight: 600; font-size: 17px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+}
+.pay:hover { background: var(--blue-hover); }
+.stripe { margin: 0; font-size: 14px; color: var(--ink-2); text-align: center; text-wrap: balance; }
+.stripe svg { display: inline-block; vertical-align: -3px; margin-right: 6px; }
+
+/* ---------- side column ---------- */
+.aside { flex: 2 1 300px; min-width: 0; display: flex; flex-direction: column; gap: clamp(24px, 2.6vw, 32px); }
+.next { background: var(--soft); border-radius: 20px; padding: clamp(20px, 2.4vw, 28px); display: flex; flex-direction: column; gap: 16px; }
+.h2 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(22px, 1.9vw, 26px); line-height: 1.15; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.step { display: flex; gap: 14px; }
+.rail { flex: 0 0 32px; display: flex; flex-direction: column; align-items: center; }
+.dot {
+  width: 32px; height: 32px; border-radius: 16px; background: #fff; border: 2px solid var(--ink); color: var(--ink);
+  display: flex; align-items: center; justify-content: center; font-family: var(--font-head); font-weight: 700; font-size: 16px;
+}
+.dotOn { background: var(--blue); border-color: var(--blue); color: #fff; }
+.line { flex: 1; width: 2px; min-height: 16px; background: var(--line-strong); }
+.stepText { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 18px; }
+.step:last-child .stepText { padding-bottom: 0; }
+.stepTitle { font-weight: 700; }
+.stepBody { font-size: 15px; color: var(--ink-2); }
+
+.other { display: flex; flex-direction: column; gap: 10px; }
+.otherList { list-style: none; margin: 0; padding: 0; border-top: 2px solid var(--ink); display: flex; flex-direction: column; }
+.otherList li { border-bottom: 1px solid var(--line-strong); }
+.otherLink {
+  min-height: 56px; padding: 10px 0; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  color: var(--ink); text-decoration: none;
+}
+.content a.otherLink { color: var(--ink); }
+.otherLink svg { flex: 0 0 16px; }
+.otherText { display: flex; flex-direction: column; gap: 2px; }
+.otherName { font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.otherLink:hover .otherName { color: var(--blue); }
+.otherSum { font-size: 14.5px; color: var(--ink-2); }
+.ask { margin: 0; font-size: 14.5px; color: var(--ink-2); }
+
+/* ---------- buttons on the narrow pages ---------- */
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
