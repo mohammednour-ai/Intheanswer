@@ -19,7 +19,7 @@ const schema = z.object({
   SUPABASE_STORAGE_BUCKET: z.string().default("reports"),
 
   // The single account allowed into the portal.
-  OWNER_EMAIL: z.string().email().default("hello@intheanswer.ca"),
+  OWNER_EMAIL: z.string().trim().toLowerCase().email().default("hello@intheanswer.ca"),
   // Local development only: lets the portal open without Supabase Auth.
   PORTAL_DEV_BYPASS: z.string().optional(),
 
