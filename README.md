@@ -15,6 +15,7 @@ Status: **built in phases, dry run only.** Nothing is sent or charged until the 
 | 5 | Stripe and full-report delivery | |
 | 6 | Monthly retests | |
 | + | Added services: review analysis, full site test, answer pages | built, dry run on seeds |
+| + | Direct mail channel, QR results page, consent, channel settings and routing | built, test mode only |
 
 ## Local development
 
@@ -72,6 +73,75 @@ week so a low score is delayed, never dropped. The portal queue shows the score 
 has Top / Up / Down / Use score buttons; a hand order wins over the score. The two review lines need
 stored review numbers, which exist only for a clinic that connected its own Business Profile (Google
 Maps ratings are never stored), so for other clinics they show "not available".
+
+## Direct mail and channels
+
+Flow: letter or email -> results page at `/r/CODE` -> "Request a call" or "Email me the full results",
+each with consent -> call or email -> sale. Every step is recorded per clinic and per channel.
+
+### Setup
+1. Create a PostGrid account (print and mail). Put the **test** key in `POSTGRID_API_KEY` first.
+2. In PostGrid, create a webhook to `{APP_URL}/api/webhooks/postgrid` for `letter.created`,
+   `letter.updated`, `postcard.created`, `postcard.updated`; put its secret in `POSTGRID_WEBHOOK_SECRET`.
+3. Portal > Settings > Channels: set the inbound number, switch the letter channel on, set caps.
+4. Portal > Mail: build a batch in **test mode** and send it. With the test key nothing is printed. With
+   a live key a test-mode batch is printed and mailed **to your own address only**, to check print
+   quality. Real mailing also needs live mode switched on in Settings.
+
+### Cost per piece (PostGrid's published Canada prices, USD, read 2026-11-13)
+| Piece | Lettermail (first class) | Personalized Mail (standard class) |
+|---|---|---|
+| Letter, black and white | 2.12 | 1.37 |
+| Letter, colour | 2.22 | 1.47 |
+| Postcard 4x6 | 2.12 | 1.25 |
+
+Printing, envelope and postage are included; an extra page is 0.20 to 0.30. Address verification is
+included when a contact is created with a live key (Canada Post SERP certified). PostGrid lists
+Lettermail as for non-marketing mail and Personalized Mail as marketing only with a **minimum of 200
+pieces**: confirm with PostGrid which class a 50-letter first batch may use. Their published delivery
+times (5 to 7 business days first class, 10 to 15 standard) are listed for US mail; ask for Canadian
+times. The cost used in the portal is a setting (default 2.22 per letter, 2.12 per postcard).
+
+### Things PostGrid does differently from the brief
+- **Envelope:** the default is a standard double-window envelope with the addresses printed at the top
+  of page one. A plain, windowless envelope needs a custom envelope arranged with PostGrid support. The
+  letter keeps the top of the page clear for the address; if PostGrid finds content there it cancels
+  the order.
+- **Returned mail:** PostGrid reports returns only for US mail. A Canadian letter that comes back
+  arrives at your return address; record it with "Mark returned" on the batch page, which marks the
+  address bad.
+
+### How consent is stored
+- **Call:** `call_consents` holds the number, name, role, the exact wording shown beside the box, the
+  time, IP and page URL. It lasts 30 days and can be revoked. `dial()` in `src/lib/calls/consent.ts` is
+  the only way a call may start; it refuses without valid consent, outside Monday to Friday 9:30 am to
+  5:00 pm, when the clinic opted out, or when the call-me channel is closed. No voice agent is
+  connected yet: the portal's "Start call" runs the same check and then shows the number.
+- **Email:** `email_consents` holds the address, the exact wording (naming the sender and how to
+  unsubscribe) and the same evidence. Only an address with a row here may be emailed after a letter.
+- Both boxes are unticked by default and required, in the browser and on the server.
+- **Opt-out:** `/optout` (code from the letter, or email), the unsubscribe link, or the owner. Any of
+  them stops all mail, email and calls to that clinic (`src/lib/channels/optout.ts`).
+
+### How routing works
+Rules live in `channel_settings` (row `routing`) and are applied in order by `route()` in
+`src/lib/channels/routing.ts`: exclusions; lead score threshold (the send priority; default 5); no
+email -> letter, no address confirmed on the clinic's own site -> email, neither -> skipped; optional
+random test split that ignores the threshold; cool-down (default 30 days, minimum 14) before the other
+channel; consent contact is never blocked; one piece per clinic. The settings screen previews the next
+100 clinics under the current and the new rules before saving. Mailing addresses come from the clinic's
+own website (never Google Places) and are verified by PostGrid before sending.
+
+### How to pause a channel
+Portal > Settings > Channels: switch a channel off, set a pause-until date, or lower its daily or
+monthly spend cap. "Stop all outbound now" is the kill switch for every channel. Every change is in the
+change log on that page (`settings_audit_log`).
+
+### Mail rules in code
+Nothing is mailed until a batch is approved and Send is pressed. First real batch: at most 50 letters,
+one city. Two mail pieces per clinic, ever (letter, then one postcard if the code was not visited within
+14 days). A visit with no action triggers nothing automatic. Letters carry no prices and no review
+numbers, and every letter passes the verification gate before it can be queued.
 
 ## Safety rules in code
 

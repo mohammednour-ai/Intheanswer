@@ -33,3 +33,19 @@ export async function htmlToPdf(html: string): Promise<Buffer> {
     await browser.close();
   }
 }
+
+/** PDF plus a small image of the first page (for previews that work in every browser). */
+export async function htmlToPdfAndThumb(html: string, size: { width: number; height: number }): Promise<{ pdf: Buffer; png: Buffer }> {
+  const exe = await executablePath();
+  const browser = await puppeteer.launch({ executablePath: exe.path, args: exe.args, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: size.width, height: size.height, deviceScaleFactor: 0.5 });
+    await page.setContent(html, { waitUntil: "load" });
+    const png = Buffer.from(await page.screenshot({ type: "png", clip: { x: 0, y: 0, width: size.width, height: size.height } }));
+    const pdf = Buffer.from(await page.pdf({ printBackground: true, preferCSSPageSize: true }));
+    return { pdf, png };
+  } finally {
+    await browser.close();
+  }
+}

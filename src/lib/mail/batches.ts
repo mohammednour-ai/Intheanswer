@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { ownerDetails, OWNER_PLACEHOLDER_RE } from "../env";
-import { htmlToPdf } from "../reports/pdf";
+import { htmlToPdfAndThumb } from "../reports/pdf";
 import { putFile, getFile } from "../storage";
 import { audit, channelOpen, getChannel, type LetterValues } from "../channels/settings";
 import { isOptedOut } from "../channels/optout";
@@ -38,8 +38,10 @@ async function makePiece(batchId: string, clinicId: string, kind: "letter" | "po
     select address, (address_confirmed_on_site and address is not null and not address_bad) as ok from clinics where id=${clinicId}`;
   let pdfPath: string | null = null;
   if (opts.renderPdf !== false) {
-    const pdf = await htmlToPdf(await renderLetter(data));
-    pdfPath = await putFile(`mail/${batchId}/${clinicId}-${kind}.pdf`, pdf, "application/pdf");
+    // 96 CSS px per inch: letter 8.5 x 11 in, postcard 6 x 4 in
+    const r = await htmlToPdfAndThumb(await renderLetter(data), kind === "letter" ? { width: 816, height: 1056 } : { width: 576, height: 384 });
+    pdfPath = await putFile(`mail/${batchId}/${clinicId}-${kind}.pdf`, r.pdf, "application/pdf");
+    await putFile(`mail/${batchId}/${clinicId}-${kind}.png`, r.png, "image/png");
   }
   const status = !c.ok ? "skipped" : gate.passed ? "draft" : "held";
   const reason = !c.ok ? "no address confirmed on the clinic's own site" : gate.passed ? null : gate.flags.filter((f) => f.severity === "block").map((f) => f.message).join("; ");

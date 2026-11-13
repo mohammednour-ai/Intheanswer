@@ -31,6 +31,7 @@ export default async function SettingsPage() {
   return (
     <div className="stack">
       <h1>Settings</h1>
+      <p><a className="btn" href="/portal/settings/channels">Channels: email, letter, calls, routing</a></p>
 
       <section className="card stack" aria-labelledby="kill-h">
         <h2 id="kill-h">Kill switch</h2>

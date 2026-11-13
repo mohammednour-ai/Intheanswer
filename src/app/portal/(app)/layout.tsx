@@ -15,6 +15,8 @@ const NAV = [
   { href: "/portal/sent", label: "Sent" },
   { href: "/portal/replies", label: "Replies" },
   { href: "/portal/pages", label: "Pages" },
+  { href: "/portal/mail", label: "Mail" },
+  { href: "/portal/channels", label: "Channels" },
   { href: "/portal/overview", label: "Overview" },
   { href: "/portal/settings", label: "Settings" },
 ];

@@ -141,6 +141,9 @@ export async function channelLists() {
              to_char(q.window_end,'HH24:MI') as window_end, q.source_channel, q.created_at, k.expires_at
       from call_requests q join call_consents k on k.id=q.consent_id join clinics c on c.id=q.clinic_id
       where q.status='waiting' order by q.preferred_date, q.window_start`,
+    emailAsks: await sql`
+      select e.id, ${name}, e.email, e.source_channel, e.consented_at from email_consents e join clinics c on c.id=e.clinic_id
+      where e.revoked_at is null order by e.consented_at desc limit 200`,
     visitedNoAction: await sql`
       select c.id, ${name}, count(v.*)::int as visits, max(v.at) as last_visit, (array_agg(v.source order by v.at))[1] as first_source
       from page_visits v join clinics c on c.id=v.clinic_id

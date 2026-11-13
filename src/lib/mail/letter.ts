@@ -98,8 +98,11 @@ h1{font-size:17pt;line-height:1.2;margin-bottom:0.14in}
 .cta .big{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:13pt;line-height:1.25}
 .cta .url{font-family:ui-monospace,Menlo,monospace;font-size:12pt;font-weight:700;margin:4px 0}
 .foot{font-size:8.5pt;color:#4A5361;border-top:1px solid #C9D1DC;margin-top:0.14in;padding-top:0.08in}
-.card{width:6in;height:4in;padding:0.3in;display:grid;grid-template-columns:1fr 1.5in;gap:0.2in;overflow:hidden}
-.card h1{font-size:13pt}.card svg{width:1.5in;height:1.5in}.card .foot{font-size:7pt;grid-column:1 / span 2;margin:0}
+.card{width:6in;height:4in;padding:0.28in;display:grid;grid-template-columns:1fr 1.45in;grid-template-rows:1fr auto;gap:0.12in 0.2in;overflow:hidden;page-break-after:always}
+.card h1{font-size:12.5pt;margin:0.1in 0 0}.card .qr svg{width:1.45in;height:1.45in;display:block}.card .foot{font-size:6.8pt;grid-column:1 / span 2;margin:0;padding-top:0.05in}
+/* Address side: the right half is left clear for the address and postage the mail provider prints. */
+.back{width:6in;height:4in;padding:0.3in;display:grid;grid-template-columns:2.6in 1fr;gap:0.2in;overflow:hidden}
+.back p{font-size:9pt;margin:0 0 6px}
 `;
 
 async function qrSvg(url: string): Promise<string> {
@@ -116,11 +119,14 @@ export async function renderLetter(d: LetterData): Promise<string> {
   if (d.kind === "postcard") {
     return shell(`<div class="card">
   <div><div class="brand">${markSvg({ width: 20 })}In The Answer</div>
-    <h1 style="margin-top:0.12in">${esc(d.headline)}</h1>
-    <p style="font-size:9.5pt;margin:6px 0">Tested ${esc(d.testDate)}. Scan to see your results, or type <strong>${esc(d.typedUrl)}</strong>.<br>Or call ${esc(d.inboundNumber)} to hear your results explained.</p></div>
-  <div role="img" aria-label="QR code to your results">${qr}</div>
+    <h1>${esc(d.headline)}</h1>
+    <p style="font-size:9pt;margin:6px 0 0">Tested ${esc(d.testDate)}. Scan to see your results, or type <strong>${esc(d.typedUrl)}</strong>.<br>Or call ${esc(d.inboundNumber)} to hear your results explained.</p></div>
+  <div class="qr" role="img" aria-label="QR code to your results">${qr}</div>
   ${foot}
-</div>`, "6in 4in");
+</div>
+<div class="back"><div><div class="brand">${markSvg({ width: 18 })}In The Answer</div>
+  <p style="margin-top:0.12in">To the practice owner, ${esc(d.clinicName)}.</p>
+  <p>Your results are at <strong>${esc(d.typedUrl)}</strong>.</p></div><div></div></div>`, "6in 4in");
   }
   return shell(`<div class="sheet">
   <div class="addr"><div class="brand">${markSvg({ width: 24 })}In The Answer</div></div>
