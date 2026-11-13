@@ -11,6 +11,29 @@ describe("matching clinics to answers", () => {
     expect(namesMatch("Adental Office", "A Dental Care", "Barrie")).toBe(false);
     expect(namesMatch("Barrie Family Dental Centre", "Barrie Dental Centre", "Barrie")).toBe(false);
   });
+  it("a shared town or area word alone is never a match", () => {
+    // the two wrong matches the verifier caught in production
+    expect(namesMatch("Simcoe Denture Clinic", "Simcoe Family Dentistry", "Barrie")).toBe(false);
+    expect(namesMatch("Georgian Dental", "Georgian Bay Dental", "Barrie")).toBe(false);
+    expect(namesMatch("North Barrie Dental", "North Dental Care", "Barrie")).toBe(false);
+    expect(namesMatch("Lakeshore Smiles", "Lakeshore Family Dental", "Barrie")).toBe(false);
+    // a clinic named after a place still matches its own name
+    expect(namesMatch("Georgian Dental", "Georgian Dental Centre", "Barrie")).toBe(true);
+    expect(namesMatch("Simcoe Dental", "Simcoe Dental Clinic", "Barrie")).toBe(true);
+    expect(namesMatch("The Simcoe Dental Centre Inc.", "Simcoe Dental Center", "Barrie")).toBe(true);
+    // a practice word alongside the place word is enough
+    expect(namesMatch("Maple Grove Dental", "Maple Grove Dental Clinic", "Barrie")).toBe(true);
+    expect(namesMatch("Kempenfelt Bay Orthodontics", "Kempenfelt Orthodontics", "Barrie")).toBe(true);
+  });
+  it("does not count a place-named neighbour as this clinic in an answer", () => {
+    const sim = { clinicName: "Simcoe Denture Clinic", domain: "simcoedenture.example", city: "Barrie" };
+    const r = matchClinic(sim, {
+      text: "",
+      named: [{ name: "Simcoe Family Dentistry", url: "https://simcoefamilydentistry.example", status: "recommended", quote: "q" }],
+      citedUrls: [],
+    });
+    expect(r.status).toBe("not_named");
+  });
   const c = { clinicName: "Maple Grove Dental", domain: "maplegrove.example", city: "Barrie" };
   it("recommended beats listed", () => {
     const r = matchClinic(c, {

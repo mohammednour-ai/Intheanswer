@@ -12,6 +12,47 @@ const GENERIC = new Set([
   "dr", "doctor", "doctors", "drs", "smile", "smiles", "teeth", "oral", "and", "co",
 ]);
 
+/**
+ * Words that name a place, not a practice. Many clinics in one area share them
+ * ("Simcoe Denture Clinic", "Simcoe Family Dentistry"), so sharing one proves nothing.
+ * The clinic's own city is treated the same way (see distinctiveTokens).
+ */
+const PLACE = new Set([
+  // directions and town-centre words
+  "north", "south", "east", "west", "northern", "southern", "eastern", "western", "central", "downtown", "uptown",
+  "midtown", "city", "town", "village", "community", "neighbourhood", "neighborhood", "main", "old", "new",
+  // landforms and features common in place names
+  "bay", "lake", "lakes", "lakeshore", "lakeside", "lakeview", "river", "riverside", "valley", "creek", "harbour",
+  "harbor", "shore", "shores", "point", "park", "ridge", "heights", "hill", "hills", "grove", "woods", "forest",
+  "meadow", "meadows", "escarpment", "island", "beach", "falls", "station", "junction", "crossing", "corners",
+  "plaza", "square", "mall", "centre", "commons", "gate", "gateway",
+  // streets
+  "street", "st", "avenue", "ave", "road", "rd", "drive", "dr", "boulevard", "blvd", "line", "concession",
+  // Ontario regions, counties and areas
+  "ontario", "county", "region", "regional", "district", "gta", "simcoe", "georgian", "muskoka", "huronia",
+  "kempenfelt", "allandale", "innisfil", "oro", "medonte", "springwater", "essa", "halton", "peel", "york",
+  "durham", "niagara", "kawartha", "haliburton", "grey", "bruce", "dufferin", "wellington", "waterloo",
+  "golden", "horseshoe", "trent", "ottawa", "hamilton", "toronto", "mississauga", "brampton", "oakville",
+  "burlington", "milton", "barrie", "orillia", "collingwood", "wasaga", "midland", "bradford", "newmarket",
+  "aurora", "vaughan", "markham", "richmond", "scarborough", "etobicoke",
+]);
+
+/** Legal and filler words ignored when two names must be the same name. */
+const FILLER = new Set(["the", "inc", "ltd", "llp", "pc", "professional", "corporation", "co", "and"]);
+
+/** Words a clinic's name may end with or leave off ("Simcoe Dental" = "Simcoe Dental Clinic"). */
+const TRAILING = new Set(["clinic", "clinics", "office", "offices", "centre", "centres"]);
+
+/**
+ * A name reduced for an exact comparison: lower case, filler removed, centre and
+ * center alike, and a trailing "Clinic", "Office" or "Centre" dropped.
+ */
+function sameNameKey(name: string): string {
+  const t = nameTokens(name).filter((x) => !FILLER.has(x)).map((x) => (x === "center" ? "centre" : x === "centers" ? "centres" : x));
+  while (t.length > 1 && TRAILING.has(t[t.length - 1])) t.pop();
+  return t.join(" ");
+}
+
 export function nameTokens(name: string): string[] {
   return name
     .toLowerCase()
@@ -68,9 +109,14 @@ export function namesMatch(a: string, b: string, city: string): boolean {
   }
   const sa = new Set(ta);
   const sb = new Set(tb);
-  const inter = [...sa].filter((t) => sb.has(t)).length;
+  const shared = [...sa].filter((t) => sb.has(t));
   // all distinctive tokens of the shorter name appear in the longer one
-  return inter > 0 && inter === Math.min(sa.size, sb.size);
+  if (shared.length === 0 || shared.length !== Math.min(sa.size, sb.size)) return false;
+  // What they share must include a word that names the practice, not just the area.
+  // When it is only place words, the two must be the same name ("Georgian Dental"
+  // and "Georgian Dental Centre" yes; "Georgian Dental" and "Georgian Bay Dental" no).
+  if (shared.some((t) => !PLACE.has(t))) return true;
+  return sameNameKey(a) === sameNameKey(b);
 }
 
 export function matchClinic(
