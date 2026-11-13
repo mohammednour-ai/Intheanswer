@@ -47,6 +47,10 @@ const nextConfig: NextConfig = {
       "./node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-600-normal.woff2",
       "./node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2",
     ],
+    // Chromium's compressed binaries are read at run time, so tracing misses them.
+    // Only the routes that run jobs (PDFs, site checks) need them.
+    "/api/cron/worker": ["./node_modules/@sparticuz/chromium/bin/**"],
+    "/api/cron/pdf-check": ["./node_modules/@sparticuz/chromium/bin/**"],
   },
   async headers() {
     return [
