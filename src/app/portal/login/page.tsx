@@ -12,11 +12,18 @@ async function sendLink(form: FormData) {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   // Only the owner address is ever sent a link. The response is the same either way.
   if (email === env().OWNER_EMAIL.toLowerCase()) {
-    const sb = await supabaseServer();
-    await sb?.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: `${env().APP_URL}/auth/callback` },
-    });
+    // The page says the same thing either way; a failure is logged for the owner to find.
+    try {
+      const sb = await supabaseServer();
+      if (!sb) console.error("portal sign-in: Supabase is not configured (NEXT_PUBLIC_SUPABASE_URL / PUBLISHABLE_KEY)");
+      const r = await sb?.auth.signInWithOtp({
+        email,
+        options: { shouldCreateUser: false, emailRedirectTo: `${env().APP_URL}/auth/callback` },
+      });
+      if (r?.error) console.error(`portal sign-in: ${r.error.status ?? ""} ${r.error.message}`);
+    } catch (e) {
+      console.error(`portal sign-in failed: ${(e as Error).message}`);
+    }
   }
   redirect("/portal/login?sent=1");
 }
