@@ -109,7 +109,7 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     claims.push({
       id: `row-${a.question_index}`,
       where: "row",
-      claim: `Question ${a.question_index + 1}: status ${a.status}; named instead: ${namedInstead.join(", ") || "none"}`,
+      claim: `Question ${a.question_index + 1}: status ${a.status}; ${a.status === "recommended" ? "also recommended" : "named instead"}: ${namedInstead.join(", ") || "none"}`,
       evidence: [
         { kind: "answer_quote", ref: a.id, label: `Question: ${a.question}` },
         ...(a.evidence ? [{ kind: "answer_quote" as const, ref: a.id, quote: a.evidence, label: `How ${c.site_name ?? c.name} appeared` }] : []),

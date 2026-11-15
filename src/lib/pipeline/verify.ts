@@ -353,7 +353,10 @@ async function claimsWithEvidence(data: TeaserData, draft: Draft): Promise<{ id:
   for (const r of data.rows) {
     out.push({
       id: `row-${r.questionIndex}`,
-      claim: `For "${r.question}", ${data.clinic.name} was ${r.status.replace("_", " ")}; clinics recommended instead: ${r.namedInstead.join(", ") || "none"}.`,
+      // When the clinic was recommended, the others were recommended alongside it, not instead of it.
+      claim: `For "${r.question}", ${data.clinic.name} was ${r.status.replace("_", " ")}; ${
+        r.status === "recommended" ? "other clinics also recommended" : "clinics recommended instead"
+      }: ${r.namedInstead.join(", ") || "none"}.`,
       evidence: answerText.get(r.answerId) ?? "",
     });
   }
