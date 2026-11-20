@@ -5,7 +5,8 @@ import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { setTypeMode } from "@/lib/sending/modes";
 import { checkDns } from "@/lib/sending/dns";
-import { ontarioMunicipality } from "@/lib/site/ontarioCities";
+import { ontarioMunicipality, cityKey } from "@/lib/site/ontarioCities";
+import { redirect } from "next/navigation";
 
 function num(v: FormDataEntryValue | null, min: number, max: number): number | null {
   if (v === null || String(v).trim() === "") return null;
@@ -91,19 +92,64 @@ export async function saveCityAction(form: FormData) {
  */
 export async function setCityActiveAction(name: string, active: boolean) {
   await requireOwner();
-  const listed = ontarioMunicipality(name);
   const sql = db();
   const [existing] = await sql<{ id: number }[]>`select id from cities where lower(name)=lower(${name}) and province='ON' limit 1`;
-  if (!existing && !listed) throw new Error("unknown city");
-  const [c] = existing
-    ? await sql<{ id: number }[]>`update cities set active=${active} where id=${existing.id} returning id`
-    : await sql<{ id: number }[]>`insert into cities (name, active) values (${listed}, ${active})
+  if (!existing && !ontarioMunicipality(name)) throw new Error("unknown city");
+  await switchCity(existing?.id ?? null, ontarioMunicipality(name) ?? name, active);
+  revalidatePath("/portal/settings");
+}
+
+async function switchCity(existingId: number | null, name: string, active: boolean) {
+  const sql = db();
+  const [c] = existingId
+    ? await sql<{ id: number }[]>`update cities set active=${active} where id=${existingId} returning id`
+    : await sql<{ id: number }[]>`insert into cities (name, active) values (${name}, ${active})
         on conflict (name, province) do update set active=excluded.active returning id`;
   if (active) {
     await sql`insert into discovery_targets (sector_id, city_id) select id, ${c.id} from sectors on conflict do nothing`;
     await sql`update discovery_targets set active=true where city_id=${c.id}`;
   }
+}
+
+/** A place name as typed: letters (accents too), spaces, dots, hyphens and apostrophes. */
+const PLACE_RE = /^[\p{L}][\p{L} .'’-]{1,59}$/u;
+
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase());
+}
+
+/**
+ * Turn on one or more cities typed into the box, separated by commas or new lines.
+ * Listed municipalities take their listed spelling; other Ontario place names
+ * (a neighbourhood such as North York) are accepted as typed.
+ */
+export async function addCitiesAction(form: FormData) {
+  await requireOwner();
+  const names = String(form.get("cities") ?? "").split(/[,;\n]+/).map((n) => n.trim().replace(/\s+/g, " ")).filter(Boolean);
+  const sql = db();
+  const rows = await sql<{ id: number; name: string; active: boolean }[]>`select id, name, active from cities where province='ON'`;
+  const byKey = new Map(rows.map((r) => [cityKey(r.name), r]));
+  const added: string[] = [], already: string[] = [], bad: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of names.slice(0, 50)) {
+    const key = cityKey(raw);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const existing = byKey.get(key);
+    if (existing?.active) { already.push(existing.name); continue; }
+    const listed = ontarioMunicipality(raw);
+    if (!existing && !listed && !PLACE_RE.test(raw)) { bad.push(raw); continue; }
+    const name = existing?.name ?? listed ?? titleCase(raw);
+    await switchCity(existing?.id ?? null, name, true);
+    added.push(listed || existing ? name : `${name} (not on the municipality list)`);
+  }
+  const parts = [
+    added.length && `Turned on: ${added.join(", ")}.`,
+    already.length && `Already on: ${already.join(", ")}.`,
+    bad.length && `Not a place name: ${bad.join(", ")}.`,
+  ].filter(Boolean);
   revalidatePath("/portal/settings");
+  redirect(`/portal/settings?cities=${encodeURIComponent(parts.join(" ") || "Type at least one city.")}#cities-h`);
 }
 
 export async function toggleTargetAction(id: number, active: boolean) {

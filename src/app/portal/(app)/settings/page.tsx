@@ -16,10 +16,12 @@ import {
   saveSectorAction, checkDnsAction } from "./actions";
 import type { DnsCheck } from "@/lib/sending/dns";
 import { ONTARIO_MUNICIPALITIES, cityKey } from "@/lib/site/ontarioCities";
-import { setCityActiveAction } from "./actions";
+import { setCityActiveAction, addCitiesAction } from "./actions";
 
-export default async function SettingsPage() {
+export default async function SettingsPage(props: PageProps<"/portal/settings">) {
   await requireOwner();
+  const sp = await props.searchParams;
+  const cityMsg = typeof sp.cities === "string" ? sp.cities.slice(0, 600) : null;
   const s = await getSettings();
   const dns = s.dns_detail as DnsCheck | null;
   const modes = await getModes();
@@ -211,6 +213,21 @@ export default async function SettingsPage() {
           per business day across all cities. Each city adds roughly $15 to $25 a month in Google Places and Claude costs.
           Turning a city off stops new searches there; clinics already found, reports and paid work carry on.
         </p>
+        <form action={addCitiesAction} className="stack" style={{ gap: 8 }}>
+          <label htmlFor="add-cities" style={{ fontWeight: 600 }}>Add cities</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <input id="add-cities" name="cities" list="ontario-cities" autoComplete="off" required
+                   placeholder="Oakville, Burlington, North York" style={{ flex: "1 1 260px" }} />
+            <button className="btn btn-primary">Turn on</button>
+          </div>
+          <datalist id="ontario-cities">
+            {offCities.concat(requested).map((c) => <option key={c.name} value={c.name} />)}
+          </datalist>
+          <p className="small muted" style={{ margin: 0 }}>
+            Type one or several, separated by commas. Suggestions appear as you type. A neighbourhood such as North York or Scarborough works too.
+          </p>
+          {cityMsg && <p className="small" role="status" style={{ margin: 0 }}><strong>{cityMsg}</strong></p>}
+        </form>
         <h3 style={{ margin: 0 }}>On ({onCities.length})</h3>
         {onCities.length ? (
           <div className="table-scroll">
