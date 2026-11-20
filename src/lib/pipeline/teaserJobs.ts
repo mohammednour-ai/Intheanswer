@@ -1,5 +1,6 @@
 import { db } from "../db";
-import { env } from "../env";
+import { env, ownerDetails } from "../env";
+import { identificationProblems } from "../sending/send";
 import type { JobContext } from "../jobs/queue";
 import { PermanentJobError } from "../jobs/queue";
 import { register } from "../jobs/handlers";
@@ -159,5 +160,63 @@ async function handleVerifyTeaser(ctx: JobContext) {
   return { status: result.status, flags, removed: v.removed, findings: v.data.findings.length };
 }
 
+/**
+ * Rebuild a waiting teaser email (and its report footer and PDF) with the
+ * current wording and sender details, from the report's already-verified data.
+ * No model call. Drafts are frozen when written, so after the sender details
+ * change the send check holds them; this brings them up to date. The result
+ * goes back to review: the owner approves the new text before it is sent.
+ */
+async function handleRefreshTeaser(ctx: JobContext) {
+  const { messageId } = ctx.job.payload as { messageId: string };
+  const sql = db();
+  const [msg] = await sql<{ id: string; type: string; status: string; to_email: string; contact_source_url: string | null;
+                           subject: string; body_text: string; report_id: string | null; clinic_id: string | null }[]>`
+    select id, type::text, status::text, to_email, contact_source_url, subject, body_text, report_id, clinic_id
+    from messages where id=${messageId}`;
+  if (!msg) throw new PermanentJobError("message missing");
+  if (!["held", "pending_review"].includes(msg.status)) return { skipped: `message is ${msg.status}` };
+  if (!["first_email", "self_serve_teaser"].includes(msg.type) || !msg.report_id) return { skipped: "not a teaser email" };
+  const [rep] = await sql<{ data: TeaserData & { verified?: boolean }; token: string }[]>`
+    select data, token from reports where id=${msg.report_id}`;
+  if (!rep || !rep.data.verified) return { skipped: "report not verified" };
+
+  const o = ownerDetails();
+  const data: TeaserData = { ...rep.data, owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email } };
+  const draft = buildFirstEmail(data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token) });
+  const flags: Flag[] = scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)");
+  for (const p of identificationProblems(msg.type, draft.bodyText)) flags.push({ code: "identification", message: p, severity: "block" });
+  const blocked = flags.some((f) => f.severity === "block");
+
+  const html = renderTeaser(data);
+  const pdf = await htmlToPdf(html);
+  const pdfRef = await putFile(`reports/${rep.token}.pdf`, pdf, "application/pdf");
+  const settings = await getSettings();
+  const status = blocked ? "held" : "pending_review";
+  const reason = blocked
+    ? "rebuilt, but: " + flags.filter((f) => f.severity === "block").map((f) => f.message).join("; ")
+    : "rebuilt with the current wording and sender details: approve to send";
+  await sql.begin(async (tx) => {
+    await tx`update reports set data=${tx.json({ ...rep.data, owner: data.owner } as never)}, html=${html},
+              pdf_path=${pdfRef}, pdf_bytes=${pdf.length} where id=${msg.report_id}`;
+    await tx`update messages set status=${status}, subject=${draft.subject}, body_text=${draft.bodyText}, body_html=null,
+              claims=${tx.json([...data.claims, ...draft.claims] as never)}, flags=${tx.json(flags as never)},
+              gate_passed=${!blocked}, requires_review=true, review_reason=${reason},
+              content_hash=${sha256(draft.subject + "\n" + draft.bodyText)},
+              expires_at=${blocked ? null : new Date(Date.now() + settings.pending_expiry_days * 86400e3)}, updated_at=now()
+              where id=${msg.id} and status in ('held', 'pending_review')`;
+    await tx`insert into approval_log (message_id, action, actor_email, before, after)
+             values (${msg.id}, 'edit', 'system: rebuilt with current wording',
+                     ${tx.json({ subject: msg.subject, body_text: msg.body_text } as never)},
+                     ${tx.json({ subject: draft.subject, body_text: draft.bodyText } as never)})`;
+    if (msg.clinic_id && !blocked) {
+      await tx`update clinics set status='queued', status_reason=null, updated_at=now()
+               where id=${msg.clinic_id} and status <> all(${CLOSED})`;
+    }
+  });
+  return { status, flags: flags.length };
+}
+
 register("build_teaser", handleBuildTeaser);
 register("verify_teaser", handleVerifyTeaser);
+register("refresh_teaser", handleRefreshTeaser);
