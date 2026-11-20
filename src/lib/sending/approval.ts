@@ -63,7 +63,23 @@ export async function approve(id: string, actor: Actor, action: "approve" | "bul
                          where id=${id} and status = any(${ACTIONABLE}) returning id`;
   if (!done.length) throw new Error("this item was already handled");
   await log(id, action, actor);
-  await enqueue("send_message", `send:${id}`, { messageId: id }, { priority: await sendJobPriority(m.clinic_id) });
+  await queueSend(id, await sendJobPriority(m.clinic_id));
+}
+
+/**
+ * Queue the send job for a message. There is one job per message (send:<id>);
+ * when an earlier one already finished, for example because the send check
+ * held the message, it is run again. That is safe: the send job only sends a
+ * message that is approved, and marks it "sending" first.
+ */
+export async function queueSend(id: string, priority: number) {
+  const key = `send:${id}`;
+  const r = await enqueue("send_message", key, { messageId: id }, { priority });
+  if (!r.created) {
+    await db()`update jobs set status='queued', attempts=0, run_after=now(), last_error=null, locked_at=null, locked_by=null,
+                finished_at=null, priority=${priority}
+              where idempotency_key=${key} and status in ('done', 'failed', 'dead', 'cancelled')`;
+  }
 }
 
 export async function bulkApprove(ids: string[], actor: Actor) {
