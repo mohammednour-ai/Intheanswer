@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ownerDetails } from "@/lib/env";
+import { chargesHst, ownerDetails } from "@/lib/env";
 import { alreadyPurchased, isPlan, resolveBuyToken, startCheckout } from "@/lib/payments/checkout";
 import { checkoutState, minTermText, PLAN_NAMES, PLAN_PRICES, firstPaymentCents } from "@/lib/payments/stripe";
 import { Shell } from "../../Shell";
@@ -154,9 +154,9 @@ export default async function BuyPage(props: PageProps<"/buy/[token]/[plan]">) {
         <section className={s.terms} aria-labelledby="terms-h">
           <h2 id="terms-h" className={s.label}>What you are buying</h2>
           <p className={s.priceLine}>
-            {plan === "report" && <><span className={s.price}>{cad(prices.oneTime!)}</span><span><span className={s.per}>one time</span> <span className={s.hst}>plus HST</span></span></>}
-            {plan === "reports" && <><span className={s.price}>{cad(firstPaymentCents(plan))}</span><span><span className={s.per}>for the first month, then {cad(prices.monthly!)} per month</span> <span className={s.hst}>plus HST</span></span></>}
-            {plan === "monthly" && <><span className={s.price}>{cad(prices.monthly!)}</span><span><span className={s.per}>per month</span> <span className={s.hst}>plus HST</span></span></>}
+            {plan === "report" && <><span className={s.price}>{cad(prices.oneTime!)}</span><span><span className={s.per}>one time</span>{chargesHst() && <> <span className={s.hst}>plus HST</span></>}</span></>}
+            {plan === "reports" && <><span className={s.price}>{cad(firstPaymentCents(plan))}</span><span><span className={s.per}>for the first month, then {cad(prices.monthly!)} per month</span>{chargesHst() && <> <span className={s.hst}>plus HST</span></>}</span></>}
+            {plan === "monthly" && <><span className={s.price}>{cad(prices.monthly!)}</span><span><span className={s.per}>per month</span>{chargesHst() && <> <span className={s.hst}>plus HST</span></>}</span></>}
           </p>
           {plan === "report" && (
             <ul className={s.rows}>

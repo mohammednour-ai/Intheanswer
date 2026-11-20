@@ -1,5 +1,6 @@
 import type { Claim, TeaserData } from "../reports/types";
 import { unsubscribeUrl } from "../tokens";
+import { signature } from "../sending/outbox";
 
 /**
  * The first email: plain, short and personal. Subject states the clinic's
@@ -68,9 +69,9 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
   const body = [
     `Hello ${d.clinic.name} team,`,
     ``,
-    `On ${d.test.date} I asked ${d.test.assistant}, an AI assistant, ${t} questions a patient in ${d.clinic.city} might ask, such as "${example.question}" ${whatCameBack}${namedLine}`,
+    `On ${d.test.date} we asked ${d.test.assistant}, an AI assistant, ${t} questions a patient in ${d.clinic.city} might ask, such as "${example.question}" ${whatCameBack}${namedLine}`,
     ``,
-    `Two things I noticed on ${d.clinic.domain}:`,
+    `Two things we noticed on ${d.clinic.domain}:`,
     ...two.map((f, i) => `${i + 1}. ${f.text}`),
     ``,
     `The free report has every question, who was named, and a third finding:`,
@@ -80,18 +81,14 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
     `If you want it fixed:`,
     `- Full report and fix files: 200 CAD, one time.`,
     `- Monthly reports: 150 CAD for the first month, then 50 CAD a month. The same report, updated after a fresh retest each month.`,
-    `- Full service plan: 200 CAD a month. I renovate your site or take it over, install every fix and retest each month.`,
+    `- Full service plan: 200 CAD a month. We renovate your site or take it over, install every fix and retest each month.`,
     ``,
     `Whichever you choose, the free report is yours to keep.`,
     ``,
-    `${d.owner.name}`,
-    `${d.owner.businessName}`,
-    `${d.owner.mailingAddress} · ${d.owner.phone}`,
-    `intheanswer.ca`,
-    `Report prepared with In The Answer Copilot (AI)`,
+    signature(),
     ``,
     `--`,
-    `You are receiving this because ${opts.toEmail} is published on ${opts.sourceUrl}. To stop all emails from me, use this link (no login needed): ${unsubscribeUrl(opts.toEmail)}`,
+    `You are receiving this because ${opts.toEmail} is published on ${opts.sourceUrl}. To stop all emails from us, use this link (no login needed): ${unsubscribeUrl(opts.toEmail)}`,
   ].join("\n");
 
   return { subject: firstEmailSubject(d), bodyText: body, claims };

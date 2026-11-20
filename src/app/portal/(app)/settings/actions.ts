@@ -5,6 +5,7 @@ import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { setTypeMode } from "@/lib/sending/modes";
 import { checkDns } from "@/lib/sending/dns";
+import { ontarioMunicipality } from "@/lib/site/ontarioCities";
 
 function num(v: FormDataEntryValue | null, min: number, max: number): number | null {
   if (v === null || String(v).trim() === "") return null;
@@ -52,7 +53,9 @@ export async function saveSendingAction(form: FormData) {
   const pagesPerMonth = num(form.get("pages_per_month"), 0, 20) ?? 2;
   const crawlCap = num(form.get("crawl_page_cap"), 5, 200) ?? 40;
   const cacheDays = num(form.get("api_cache_days"), 1, 30) ?? 7;
-  await db()`update app_settings set pages_per_month=${pagesPerMonth}, crawl_page_cap=${crawlCap}, api_cache_days=${cacheDays} where id`;
+  const perDay = num(form.get("discovery_targets_per_day"), 0, 30) ?? 2;
+  await db()`update app_settings set pages_per_month=${pagesPerMonth}, crawl_page_cap=${crawlCap}, api_cache_days=${cacheDays},
+             discovery_targets_per_day=${perDay} where id`;
   await db()`update app_settings set daily_cap_override=${cap}, send_window_start=${start}, send_window_end=${end},
              claude_daily_spend_cap_usd=${spend}, auto_review_first_n=${firstN}, warmup_start_date=${warm},
              updated_at=now() where id`;
@@ -78,6 +81,28 @@ export async function saveCityAction(form: FormData) {
     on conflict (name, province) do update set lat=excluded.lat, lng=excluded.lng, radius_m=excluded.radius_m, active=true
     returning id`;
   await sql`insert into discovery_targets (sector_id, city_id) select id, ${c.id} from sectors on conflict do nothing`;
+  revalidatePath("/portal/settings");
+}
+
+/**
+ * Switch a city on or off for discovery. On: the city row is created if needed and
+ * gets a discovery target for every sector, so it joins the monthly search.
+ * Off: no new discovery there; clinics already found and paid work carry on.
+ */
+export async function setCityActiveAction(name: string, active: boolean) {
+  await requireOwner();
+  const listed = ontarioMunicipality(name);
+  const sql = db();
+  const [existing] = await sql<{ id: number }[]>`select id from cities where lower(name)=lower(${name}) and province='ON' limit 1`;
+  if (!existing && !listed) throw new Error("unknown city");
+  const [c] = existing
+    ? await sql<{ id: number }[]>`update cities set active=${active} where id=${existing.id} returning id`
+    : await sql<{ id: number }[]>`insert into cities (name, active) values (${listed}, ${active})
+        on conflict (name, province) do update set active=excluded.active returning id`;
+  if (active) {
+    await sql`insert into discovery_targets (sector_id, city_id) select id, ${c.id} from sectors on conflict do nothing`;
+    await sql`update discovery_targets set active=true where city_id=${c.id}`;
+  }
   revalidatePath("/portal/settings");
 }
 

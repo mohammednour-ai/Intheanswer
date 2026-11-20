@@ -25,6 +25,7 @@ const schema = z.object({
 
   // Owner details used in every email and footer.
   OWNER_NAME: z.string().default("[FULL NAME]"),
+  OWNER_TITLE: z.string().default("Founder"), // shown with the name in the contact line of emails
   OWNER_BUSINESS_NAME: z.string().default("[REGISTERED BUSINESS NAME]"),
   OWNER_MAILING_ADDRESS: z.string().default("[MAILING ADDRESS]"),
   OWNER_PHONE: z.string().default("[PHONE]"),
@@ -119,11 +120,22 @@ function termLabel(raw: string): string {
   return /^\d{1,2}$/.test(t) ? (t === "1" ? "1 month" : `${t} months`) : t;
 }
 
+/** Whether HST is charged on top of the prices (only when a tax rate is configured, i.e. when registered). */
+export function chargesHst(): boolean {
+  return Boolean(env().STRIPE_TAX_RATE_ID);
+}
+
+/** "plus HST" or nothing, for the price notes. */
+export function priceNote(): string {
+  return chargesHst() ? "Prices are in Canadian dollars, plus HST." : "Prices are in Canadian dollars.";
+}
+
 /** Owner details that must be filled before any live send. */
 export function ownerDetails() {
   const e = env();
   return {
     name: e.OWNER_NAME,
+    title: e.OWNER_TITLE,
     businessName: e.OWNER_BUSINESS_NAME,
     mailingAddress: e.OWNER_MAILING_ADDRESS,
     phone: e.OWNER_PHONE,

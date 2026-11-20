@@ -282,7 +282,7 @@ function receipt(x: { order: OrderRow; plan: Plan; name: string; tax: number | n
       "Refunds for the one-time report are given when the report has not yet been delivered. To ask for one, write to us from this address.",
     );
   }
-  lines.push("", `Questions: ${o.email}`, "", "--", signature());
+  lines.push("", "--", signature());
   return { subject: x.plan === "monthly" ? "Receipt: In The Answer full service plan" : x.plan === "reports" ? "Receipt: In The Answer monthly reports" : "Receipt: In The Answer full report", body: lines.join("\n") };
 }
 

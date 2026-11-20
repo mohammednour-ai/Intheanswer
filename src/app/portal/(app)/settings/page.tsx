@@ -15,6 +15,8 @@ import {
   saveQuestionsAction,
   saveSectorAction, checkDnsAction } from "./actions";
 import type { DnsCheck } from "@/lib/sending/dns";
+import { ONTARIO_MUNICIPALITIES, cityKey } from "@/lib/site/ontarioCities";
+import { setCityActiveAction } from "./actions";
 
 export default async function SettingsPage() {
   await requireOwner();
@@ -27,8 +29,23 @@ export default async function SettingsPage() {
   const sectors = await sql`select * from sectors order by id`;
   const targets = await sql`
     select t.id, t.active, s.name as sector, c.name as city, t.last_run_at
-    from discovery_targets t join sectors s on s.id=t.sector_id join cities c on c.id=t.city_id order by c.name, s.id`;
+    from discovery_targets t join sectors s on s.id=t.sector_id join cities c on c.id=t.city_id where c.active order by c.name, s.id`;
   const qsets = await sql`select distinct on (sector_id) * from question_sets where active order by sector_id, version desc`;
+  const cityRows = await sql<{ name: string; active: boolean; clinics: number; requests: number; last_run: Date | null }[]>`
+    select c.name, c.active,
+      (select count(*)::int from clinics k where k.city_id=c.id) as clinics,
+      (select count(*)::int from self_serve_requests r join clinics k on k.id=r.clinic_id where k.city_id=c.id) as requests,
+      (select max(t.last_run_at) from discovery_targets t where t.city_id=c.id) as last_run
+    from cities c where c.province='ON'`;
+  const byKey = new Map(cityRows.map((c) => [cityKey(c.name), c]));
+  const allCities = [
+    ...cityRows,
+    ...ONTARIO_MUNICIPALITIES.filter((n) => !byKey.has(cityKey(n))).map((name) => ({ name, active: false, clinics: 0, requests: 0, last_run: null })),
+  ].sort((a, b) => a.name.localeCompare(b.name));
+  const onCities = allCities.filter((c) => c.active);
+  const requested = allCities.filter((c) => !c.active && c.requests > 0);
+  const offCities = allCities.filter((c) => !c.active && c.requests === 0);
+  const sectorCount = sectors.filter((x) => x.active).length;
   const capToday = warmupCapForDate(s, localDate(new Date()));
 
   return (
@@ -164,6 +181,10 @@ export default async function SettingsPage() {
               <input id="cap2" name="crawl_page_cap" type="number" min={5} max={200} defaultValue={s.crawl_page_cap} />
             </div>
             <div>
+              <label htmlFor="dpd">Discovery searches per business day</label>
+              <input id="dpd" name="discovery_targets_per_day" type="number" min={0} max={30} defaultValue={s.discovery_targets_per_day} />
+            </div>
+            <div>
               <label htmlFor="cache">Speed results cache (days)</label>
               <input id="cache" name="api_cache_days" type="number" min={1} max={30} defaultValue={s.api_cache_days} />
             </div>
@@ -181,6 +202,66 @@ export default async function SettingsPage() {
         <form action={setLiveAction.bind(null, !s.live_enabled)}>
           <button className="btn">{s.live_enabled ? "Switch back to dry run" : "Enable live mode"}</button>
         </form>
+      </section>
+
+      <section className="card stack" aria-labelledby="cities-h">
+        <h2 id="cities-h">Cities</h2>
+        <p className="small muted">
+          A city that is on is searched for new clinics once a month in each of the {sectorCount} sectors, {s.discovery_targets_per_day} searches
+          per business day across all cities. Each city adds roughly $15 to $25 a month in Google Places and Claude costs.
+          Turning a city off stops new searches there; clinics already found, reports and paid work carry on.
+        </p>
+        <h3 style={{ margin: 0 }}>On ({onCities.length})</h3>
+        {onCities.length ? (
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th>City</th><th>Clinics found</th><th>Last search</th><th></th></tr></thead>
+              <tbody>
+                {onCities.map((c) => (
+                  <tr key={c.name}>
+                    <td>{c.name}</td>
+                    <td>{c.clinics}</td>
+                    <td className="small">{c.last_run ? new Date(c.last_run).toLocaleDateString("en-CA") : "not yet"}</td>
+                    <td>
+                      <form action={setCityActiveAction.bind(null, c.name, false)}><button className="btn">Turn off</button></form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <p className="small">No city is on.</p>}
+        {requested.length > 0 && (
+          <>
+            <h3 style={{ margin: 0 }}>Asked for by clinics, not searched yet ({requested.length})</h3>
+            <p className="small muted">A clinic here asked for its free report. Only that clinic was tested; the city is not searched until you turn it on.</p>
+            <div className="table-scroll">
+              <table>
+                <thead><tr><th>City</th><th>Requests</th><th>Clinics</th><th></th></tr></thead>
+                <tbody>
+                  {requested.map((c) => (
+                    <tr key={c.name}>
+                      <td>{c.name}</td>
+                      <td>{c.requests}</td>
+                      <td>{c.clinics}</td>
+                      <td><form action={setCityActiveAction.bind(null, c.name, true)}><button className="btn btn-primary">Turn on</button></form></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        <details>
+          <summary style={{ cursor: "pointer", fontWeight: 600 }}>All other Ontario cities and towns ({offCities.length}), off</summary>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+            {offCities.map((c) => (
+              <form key={c.name} action={setCityActiveAction.bind(null, c.name, true)}>
+                <button className="btn" title={`Turn on ${c.name}`}>{c.name}{c.clinics ? ` (${c.clinics})` : ""} · Turn on</button>
+              </form>
+            ))}
+          </div>
+        </details>
       </section>
 
       <section className="card stack" aria-labelledby="targets-h">

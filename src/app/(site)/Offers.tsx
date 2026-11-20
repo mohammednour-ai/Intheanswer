@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ownerDetails } from "@/lib/env";
+import { ownerDetails, priceNote } from "@/lib/env";
 import styles from "./site.module.css";
 
 /** Twelve cells, the first `months` filled: how long each option commits you, at a glance. */
@@ -118,7 +118,7 @@ export function Offers({
           </p>
         </div>
         <p className={styles.fine} style={{ borderTop: "1px solid var(--line)", paddingTop: 16 }}>
-          Prices are in Canadian dollars, plus HST. No one can guarantee what an AI assistant will say; we report what it said and fix what we can see.
+          {priceNote()} No one can guarantee what an AI assistant will say; we report what it said and fix what we can see.
         </p>
       </div>
     </section>

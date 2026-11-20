@@ -51,7 +51,7 @@ export function identificationProblems(type: string, body: string): string[] {
   const o = ownerDetails();
   const problems: string[] = [];
   const has = (s: string) => body.toLowerCase().includes(s.toLowerCase());
-  if (!has(o.name)) problems.push("the sender's name is missing");
+  if (!has(o.businessName)) problems.push("the sender's business name is missing");
   if (!has(o.mailingAddress)) problems.push("the mailing address is missing");
   if (COLD_TYPES.has(type) || type === "self_serve_teaser") {
     if (!/\/unsubscribe\//.test(body)) problems.push("the unsubscribe link is missing");
@@ -183,15 +183,15 @@ export function buildFollowUp(o: { clinicName: string; toEmail: string; sourceUr
   const body = [
     `Hello ${o.clinicName} team,`,
     ``,
-    `On ${o.firstSentOn} I sent you a free report on whether an AI assistant names your clinic when patients ask for a recommendation. In case it was missed, it is still here:`,
+    `On ${o.firstSentOn} we sent you a free report on whether an AI assistant names your clinic when patients ask for a recommendation. In case it was missed, it is still here:`,
     o.reportUrl,
     ``,
-    `This is the only reminder I will send.`,
+    `This is the only reminder we will send.`,
     ``,
     signature(),
     ``,
     `--`,
-    `You are receiving this because ${o.toEmail} is published on ${o.sourceUrl ?? "your website"}. To stop all emails from me, use this link (no login needed): ${unsubscribeUrl(o.toEmail)}`,
+    `You are receiving this because ${o.toEmail} is published on ${o.sourceUrl ?? "your website"}. To stop all emails from us, use this link (no login needed): ${unsubscribeUrl(o.toEmail)}`,
   ].join("\n");
   return { subject: `Your free report for ${o.clinicName}`, bodyText: body };
 }

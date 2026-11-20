@@ -214,7 +214,7 @@ describe("teaser and verification gate", () => {
     expect(scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", v.exclude)).toEqual([]);
 
     // our own wording is still held
-    const boast = { ...draft, bodyText: draft.bodyText.replace("Two things I noticed", "We are the leading service for this. Two things I noticed") };
+    const boast = { ...draft, bodyText: draft.bodyText.replace("Two things we noticed", "We are the leading service for this. Two things we noticed") };
     expect(boast.bodyText).not.toBe(draft.bodyText);
     const v2 = await verifyTeaser({ data, draft: boast, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
     expect(v2.flags.map((f) => f.code)).toContain("language_superlative");
@@ -278,7 +278,7 @@ describe("gate rules for site test and review claims", () => {
 
   it("review numbers may not be baked into the stored report or the email", async () => {
     const s = await setup();
-    const draft = { ...s.draft, bodyText: s.draft.bodyText.replace("Two things I noticed", "Your clinic has 7 reviews. Two things I noticed") };
+    const draft = { ...s.draft, bodyText: s.draft.bodyText.replace("Two things we noticed", "Your clinic has 7 reviews. Two things we noticed") };
     const v = await verifyTeaser({ data: s.data, draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
     expect(v.flags.map((f) => f.code)).toContain("review_number_stored");
     expect(v.passed).toBe(false);

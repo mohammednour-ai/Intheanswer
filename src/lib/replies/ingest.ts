@@ -184,7 +184,7 @@ export async function classifyInbound(inboundId: string, classify: Classifier = 
         `- Full report and fix files, 200 CAD, one time: ${base}/report`,
         `- Monthly reports, 150 CAD for the first month, then 50 CAD a month: ${base}/reports`,
         `- Full service plan, 200 CAD a month: ${base}/monthly`, ``,
-        `If you would rather talk first, reply with a time that suits you and I will call.`, ``, signature(),
+        `If you would rather talk first, reply with a time that suits you and we will call.`, ``, signature(),
       ].join("\n");
       type = "interested_reply";
     }

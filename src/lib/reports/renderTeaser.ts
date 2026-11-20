@@ -2,6 +2,7 @@ import { documentShell, esc } from "./html";
 import { markSvg, copilotAvatarSvg, COPILOT_NAME } from "../brand";
 import type { TeaserData, RowStatus } from "./types";
 import { LIVE_REVIEWS_MARKER } from "../reviews/liveTable";
+import { priceNote } from "../env";
 
 /** Teaser layout follows the owner's design canvas ("Teaser report (free)"). */
 
@@ -209,7 +210,7 @@ export function renderTeaser(d: TeaserData): string {
       <a class="rp-btn" href="${esc(d.offers.monthlyUrl)}">Start the full service plan${ARROW}</a>
     </article>
   </div>
-  <p class="rp-note">Prices are in Canadian dollars, plus HST. No one can guarantee what an AI assistant will say; we report what it said and fix what we can see. <a href="${esc(site)}/pricing">Contracts, cancelling and refunds are on the pricing page.</a></p>
+  <p class="rp-note">${priceNote()} No one can guarantee what an AI assistant will say; we report what it said and fix what we can see. <a href="${esc(site)}/pricing">Contracts, cancelling and refunds are on the pricing page.</a></p>
 </div></section>
 </main>
 

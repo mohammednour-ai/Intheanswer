@@ -150,7 +150,8 @@ export function setMailProvider(p: MailProvider | null) {
 /** "Name <address>" for the From header. */
 export function fromHeader(): string {
   const e = env();
-  const name = (e.MAIL_FROM_NAME || e.OWNER_NAME || "").replace(/["\r\n<>]/g, "").trim();
+  // The company sends, not a person: "In The Answer" <hello@mail.intheanswer.ca>
+  const name = (e.MAIL_FROM_NAME || "In The Answer").replace(/["\r\n<>]/g, "").trim();
   return name && !name.startsWith("[") ? `"${name}" <${e.MAIL_FROM}>` : e.MAIL_FROM;
 }
 

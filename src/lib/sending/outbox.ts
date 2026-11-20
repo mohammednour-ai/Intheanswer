@@ -91,8 +91,17 @@ export async function queueOwnerMail(kind: "owner_alert" | "owner_digest", key: 
   return queueMessage({ type: kind, toEmail: env().OWNER_EMAIL, subject, bodyText, idempotencyKey: `${kind}:${key}`, priority: 5 });
 }
 
-/** Sender block that closes every email (CASL: who is sending and how to reach them). */
+/**
+ * Sender block that closes every email (CASL: who is sending and how to reach them).
+ * Emails speak for the company; the owner appears only in the contact line.
+ */
 export function signature(): string {
   const o = ownerDetails();
-  return [`${o.name}`, `${o.businessName}`, `${o.mailingAddress} · ${o.phone}`, `intheanswer.ca`].join("\n");
+  return [contactLine(), ``, `${o.businessName}`, `${o.mailingAddress} · ${o.phone}`, `intheanswer.ca`].join("\n");
+}
+
+/** "Questions? Contact Mohamed Hussein, Founder, ..." */
+export function contactLine(): string {
+  const o = ownerDetails();
+  return `Questions? Reply to this email or contact ${o.name}, ${o.title}, at ${o.phone} or ${o.email}.`;
 }
