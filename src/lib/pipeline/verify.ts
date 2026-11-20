@@ -58,6 +58,14 @@ export interface ScanExclusions {
   quoted?: string[];
 }
 
+/** Names and quotes taken from a report's stored data, which the wording scan skips. */
+export function scanExclusionsFor(data: TeaserData, own?: { name: string; site_name: string | null }): ScanExclusions {
+  return {
+    names: [data.clinic.name, own?.name ?? "", own?.site_name ?? "", ...data.rows.flatMap((r) => r.namedInstead)],
+    quoted: [...data.rows.map((r) => r.question), ...data.findings.flatMap((f) => f.evidence.map((e) => e.quote ?? ""))],
+  };
+}
+
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
@@ -288,10 +296,7 @@ export async function verifyTeaser(input: {
   // clinic's name, the clinics the answers named (already checked against the
   // stored answers above), the patient questions, and quotes from stored pages.
   const [own] = await sql<{ name: string; site_name: string | null }[]>`select name, site_name from clinics where id=${s.clinic_id}`;
-  const exclude: ScanExclusions = {
-    names: [data.clinic.name, own?.name ?? "", own?.site_name ?? "", ...data.rows.flatMap((r) => r.namedInstead)],
-    quoted: [...data.rows.map((r) => r.question), ...data.findings.flatMap((f) => f.evidence.map((e) => e.quote ?? ""))],
-  };
+  const exclude = scanExclusionsFor(data, own);
   flags.push(...scanLanguage(teaserText, "report", exclude));
   // the email body is rebuilt from the surviving findings by the caller; scan what we have
   const emailMain = draft.bodyText.split("\n--\n")[0];

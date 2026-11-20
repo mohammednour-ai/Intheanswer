@@ -10,7 +10,7 @@ import { renderTeaser } from "../reports/renderTeaser";
 import { htmlToPdf } from "../reports/pdf";
 import { putFile } from "../storage";
 import { buildFirstEmail } from "../emails/firstEmail";
-import { verifyTeaser, scanLanguage, type Flag } from "./verify";
+import { verifyTeaser, scanLanguage, scanExclusionsFor, type Flag } from "./verify";
 import { decideReview } from "../sending/modes";
 import { sendJobPriority } from "../sending/priority";
 import { effectiveDryRun, getSettings } from "../settings";
@@ -184,7 +184,10 @@ async function handleRefreshTeaser(ctx: JobContext) {
   const o = ownerDetails();
   const data: TeaserData = { ...rep.data, owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email } };
   const draft = buildFirstEmail(data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token) });
-  const flags: Flag[] = scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)");
+  const [own] = msg.clinic_id
+    ? await sql<{ name: string; site_name: string | null }[]>`select name, site_name from clinics where id=${msg.clinic_id}`
+    : [];
+  const flags: Flag[] = scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", scanExclusionsFor(data, own));
   for (const p of identificationProblems(msg.type, draft.bodyText)) flags.push({ code: "identification", message: p, severity: "block" });
   const blocked = flags.some((f) => f.severity === "block");
 
