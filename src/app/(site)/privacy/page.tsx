@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ownerDetails } from "@/lib/env";
+import { VOICE_NAME } from "@/lib/brand";
 import styles from "../site.module.css";
 
 export const metadata: Metadata = {
@@ -32,8 +33,9 @@ export default function Privacy() {
       <h2>Why we email clinics</h2>
       <p>We send a clinic its report because the address is published by the clinic for business contact and the report is about that clinic&apos;s business. We write at most twice unless you reply. Every email names the sender, gives a mailing address and has an unsubscribe link that works at once without a login. We do not write to clinics whose site says not to send solicitations.</p>
 
-      <h2>Phone calls from our AI assistant</h2>
-      <p>We phone a clinic only when someone at the clinic asks us to, on the page its report links to or by writing to us. The call is made by In The Answer Copilot, an AI assistant that says so at the start of every call. We keep the number, when and how the call was asked for, and a written transcript of the call so that a person at In The Answer can review it; we do not keep an audio recording. Transcripts are deleted after 180 days. Tell the assistant &ldquo;do not call&rdquo; and the call ends and that number is never called again. Please do not share patient information on a call.</p>
+      {/* the name and the greeting are the phone agent's own: VOICE_NAME in src/lib/brand.ts, HELLO in src/lib/calls/engine.ts */}
+      <h2>Phone calls with our AI assistant</h2>
+      <p>We phone a clinic only when someone at the clinic asks us to, on the page its report links to or by writing to us. The call is made by {VOICE_NAME}, the AI assistant from In The Answer, which says it is an AI at the start of every call. {VOICE_NAME} also answers when you phone our number. For a call in either direction we keep the number, when the call took place and how it came about, a written transcript of the call and a short summary of it, so that a person at In The Answer can review it; we do not keep an audio recording. Transcripts are deleted after 180 days; the record of the call (the number, the time and the short summary) is kept. Tell the assistant &ldquo;do not call&rdquo; and the call ends and that number is never called again. Please do not share patient information on a call.</p>
 
       <h2>How to stop emails or remove information</h2>
       <p>Use the link in any email or the <Link href="/unsubscribe">unsubscribe page</Link>. To have your clinic&apos;s report and stored pages deleted, email <a href={`mailto:${o.email}`}>{o.email}</a>. We keep only the address on a do-not-contact list so we do not write again.</p>
