@@ -30,10 +30,6 @@ const schema = z.object({
   OWNER_MAILING_ADDRESS: z.string().default("[MAILING ADDRESS]"),
   OWNER_PHONE: z.string().default("[PHONE]"),
   OWNER_CONTACT_EMAIL: z.string().default("hello@intheanswer.ca"),
-  // Deprecated: the terms of the plans are stated in src/lib/offer.ts. Kept only until the public pages
-  // that still read them have moved to the offer; then these two and legacyTerms() go.
-  MONTHLY_MIN_TERM_MONTHS: z.string().default("12"),
-  REPORTS_MIN_TERM_MONTHS: z.string().default("3"),
 
   // Sending
   MAIL_FROM: z.string().default("hello@mail.intheanswer.ca"),
@@ -145,27 +141,10 @@ export function priceNote(): string {
   return chargesHst() ? "Prices are in Canadian dollars, plus HST." : "Prices are in Canadian dollars.";
 }
 
-/** "12" reads as "12 months"; anything else is shown as written. */
-function termLabel(raw: string): string {
-  const t = raw.trim();
-  return /^\d{1,2}$/.test(t) ? (t === "1" ? "1 month" : `${t} months`) : t;
-}
-
-/** Deprecated: the terms of the retired plans, for pages not yet moved to src/lib/offer.ts. Not an owner detail. */
-function legacyTerms() {
-  const e = env();
-  return {
-    minTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS),
-    reportsMinTerm: termLabel(e.REPORTS_MIN_TERM_MONTHS),
-    contractTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS).replace(/^(\d+) months?$/, "$1-month"),
-  };
-}
-
 /** Owner details that must be filled before any live send. */
 export function ownerDetails() {
   const e = env();
   return {
-    ...legacyTerms(),
     name: e.OWNER_NAME,
     title: e.OWNER_TITLE,
     businessName: e.OWNER_BUSINESS_NAME,
