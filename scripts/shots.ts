@@ -45,7 +45,7 @@ async function take(label: string, paths: string[]) {
           await page.addStyleTag({ content: "nextjs-portal{display:none!important}" });
           await page.evaluate(SETTLE_JS);
           const file = path.join(dir, fileName(p, width)) as Png;
-          await page.screenshot({ path: file, fullPage: true });
+          await wholePage(browser, page, file, width);
           const status = res?.status() ?? 0;
           if (status !== 200) bad++;
           // A page wider than its window scrolls sideways: always a fault.
@@ -65,8 +65,48 @@ async function take(label: string, paths: string[]) {
   if (bad || sideways) process.exit(1);
 }
 
+type Browser = Awaited<ReturnType<typeof launchBrowser>>;
+type Page = Awaited<ReturnType<Browser["newPage"]>>;
+
+/** Chrome repeats the top of a page in a picture taller than about 16,000px, so a tall page is taken in parts of this height and joined. */
+const PART = 8000;
+
+/** A picture of the whole page, however tall it is. */
+async function wholePage(browser: Browser, page: Page, file: Png, width: number) {
+  const height = (await page.evaluate("document.documentElement.scrollHeight")) as number;
+  if (height <= 2 * PART) {
+    await page.screenshot({ path: file, fullPage: true });
+    return;
+  }
+  const parts: string[] = [];
+  for (let y = 0; y < height; y += PART) {
+    const clip = { x: 0, y, width, height: Math.min(PART, height - y) };
+    parts.push((await page.screenshot({ type: "png", encoding: "base64", captureBeyondViewport: true, clip })) as string);
+  }
+  const joiner = await browser.newPage();
+  try {
+    await joiner.setContent(parts.map((p) => `<img src="data:image/png;base64,${p}">`).join(""), { waitUntil: "load" });
+    const png = (await joiner.evaluate(JOIN_JS)) as string;
+    await fs.writeFile(file, Buffer.from(png.slice(png.indexOf(",") + 1), "base64"));
+  } finally {
+    await joiner.close();
+  }
+}
+
 // Browser-side code is plain JavaScript in a string, as in src/lib/sitetest/browser.ts:
 // tsx adds helpers to compiled functions that do not exist inside the page.
+
+/** Draws the parts of a tall page one under the other and returns the joined picture. */
+const JOIN_JS = `(async () => {
+  const imgs = [...document.images];
+  await Promise.all(imgs.map((i) => i.decode()));
+  const w = imgs[0].naturalWidth, h = imgs.reduce((s, i) => s + i.naturalHeight, 0);
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const x = c.getContext("2d");
+  let y = 0;
+  for (const i of imgs) { x.drawImage(i, 0, y); y += i.naturalHeight; }
+  return c.toDataURL("image/png");
+})()`;
 
 /** Scrolls through the page so photos lower down load, then waits for images and fonts. */
 const SETTLE_JS = `(async () => {

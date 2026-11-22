@@ -1,8 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import { ownerDetails } from "@/lib/env";
+import { env, ownerDetails } from "@/lib/env";
 import { COPILOT_NAME } from "@/lib/brand";
+import { displayPhone } from "@/lib/calls/phone";
 import { sampleTeaser } from "@/lib/reports/sample";
+import { rowTrend } from "@/lib/reports/monthly";
 import type { RowStatus } from "@/lib/reports/types";
 import { SelfServeBox } from "./SelfServeBox";
 import { Offers } from "./Offers";
@@ -10,9 +12,11 @@ import { ResultMark } from "./ResultMark";
 import { Snapshot } from "./Snapshot";
 import { ClosingBand } from "./ClosingBand";
 import { Banner } from "./Banner";
+import { TESTED } from "./tested";
 import site from "./site.module.css";
 import h from "./home.module.css";
 import bannerRoom from "./images/banner-treatment-room.jpg";
+import detailMicroscope from "./images/detail-microscope.jpg";
 import roomDental from "./images/room-dental.jpg";
 import roomFamily from "./images/room-family.jpg";
 import roomMedspa from "./images/room-medspa.jpg";
@@ -37,6 +41,34 @@ const SERVICES = [
   { name: "AI marketing", text: "We get a business named when people ask an AI assistant instead of a search engine: we test, fix what stands in the way, and test again." },
 ];
 
+/** What a monthly report holds today (the parts of ComparisonData in src/lib/reports/monthly.ts). */
+const MONTHLY = [
+  { name: "Every question, asked again", text: "The result now, beside the result before." },
+  { name: "What went live", text: "Each new page, with its address and the date it was published." },
+  { name: "What changed on your website", text: "Each check that moved, with what we saw before and what we see now." },
+  { name: "What it cannot tell you", text: "The same limits as the first report: one assistant, a handful of questions, one day." },
+];
+
+/** The "now" results in the monthly illustration. Invented, like the clinic: one result moves, two do not. */
+const NOW: RowStatus[] = ["listed_only", "not_named", "listed_only"];
+
+/** Rules the service already follows. Each one is enforced in code or written into the terms on the pricing page. */
+const CARE = [
+  { name: "It says it is an AI", text: "Every report names the AI system that prepared it, and our phone assistant says it is an AI at the start of every call." },
+  { name: "No patient information", text: "We read only your public website. We do not collect patient information, and we ask you not to share any on a call." },
+  { name: "Nothing is published without you", text: "You confirm every clinical or pricing fact before it goes on your site, and you approve each new page." },
+  { name: "No superlatives, no promises", text: "Wording is checked before anything is sent or published: no superlatives, no outcome promises, no comparisons with other clinics." },
+  { name: "Your regulator's rules stay with you", text: "The final check of wording against your regulator's advertising rules is yours." },
+];
+
+/** Questions a clinic asks before the test. The answers repeat what the plans and the pricing page already state. */
+const FAQ = [
+  { q: "Can you guarantee that my clinic will be named?", a: "No. No one can guarantee what an AI assistant will say. We report what it said, fix what we can see on your website, and test again." },
+  { q: "What do you need from us?", a: "For the free test, your website address and an email address at the clinic. If you choose the full service plan, we send an intake form, and you confirm every clinical or pricing fact before it is published." },
+  { q: "What happens if we leave?", a: "The one-time report has no contract. A monthly plan can be ended at any time after its minimum term or contract. Your domain name and your content stay yours, and we hand everything back if the plan ends." },
+  { q: "Who does the work, a person or an AI?", a: `Reports are prepared by ${COPILOT_NAME}, an AI system, and every claim is checked against stored evidence before a report is sent. Your questions are answered by a person within one business day.` },
+];
+
 function Arrow({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -59,21 +91,28 @@ export default function Home() {
   const finding = sample.findings[0];
   const findingPages = seenOn(finding);
   const total = sample.score.total;
+  const recommendedOnce = TESTED.clinics - TESTED.notRecommended;
+  // Our phone line, printed when it is set up. The page is built once, so this follows the setting at
+  // deploy time; if calls are switched off later, the line answers with a short message instead.
+  const ourNumber = env().TWILIO_PHONE_NUMBER ?? null;
+  // the monthly illustration: the sample clinic's first three questions, each with an invented "now"
+  const compare = sample.rows.slice(0, NOW.length).map((r, i) => ({ answerId: r.answerId, question: r.question, before: r.status, now: NOW[i] }));
 
   return (
     <>
       {/* ---------- hero: the picture band ---------- */}
       <Banner id="hero-h" photo={bannerRoom}>
         <h1 id="hero-h" className={`${site.h1} ${h.heroTitle}`}>
-          When patients ask AI, are you <span className={`${site.accent} ${h.heroAccent}`}>in the answer?</span>
+          Patients are asking AI where to go. <span className={`${site.accent} ${h.heroAccent}`}>Find out if it names you.</span>
         </h1>
         <p className={site.bannerLead}>
-          We ask an AI assistant the questions a patient in your city would ask, record which clinics it names, and
-          show you what on your own website may be standing in the way. <strong>The first report is free.</strong>
+          One partner for your clinic&apos;s website and its place in AI answers. We test what an AI assistant says when
+          patients ask, show you what on your website stands in the way, and can fix, rebuild and run the site for you.{" "}
+          <strong>The test is free.</strong>
         </p>
         <div className={site.actions}>
-          <a href="#get-report" className={site.btnPrimary}>Get your clinic&apos;s free report</a>
-          <Link href="/sample" className={site.link}>See a sample report</Link>
+          <a href="#get-report" className={site.btnPrimary}>Get your free AI visibility test</a>
+          <a href="#plans-h" className={site.link}>See plans</a>
         </div>
       </Banner>
 
@@ -121,49 +160,30 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ---------- how it works ---------- */}
-      <section className={`${site.band} ${site.bandRule} ${h.reset}`} aria-labelledby="how-h">
-        <div className={`${site.container} ${site.stack}`}>
-          <div className={h.sectionHead}>
-            <div className={h.col8}>
-              <span className={site.eyebrow}>What we do</span>
-              <h2 id="how-h" className={site.h2}>How it works, in three steps</h2>
-            </div>
-            <Link href="/how-it-works" className={h.textLink}>Read how the test and the checks work</Link>
+      {/* ---------- the problem, in numbers from our own tests ---------- */}
+      <section className={`${site.band} ${site.bandRule} ${h.reset}`} aria-labelledby="found-h">
+        <div className={`${site.container} ${h.found}`}>
+          <div className={h.foundMain}>
+            <span className={site.eyebrow}>What we find</span>
+            <h2 id="found-h" className={h.foundTitle}>
+              <span className={h.foundFigure}>{TESTED.notRecommended} <span className={h.foundOf}>of {TESTED.clinics}</span></span>
+              <span className={site.h2}>Ontario clinics we tested were not recommended in a single answer.</span>
+            </h2>
           </div>
-
-          <ol className={h.steps}>
-            <li className={h.step}>
-              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>1</span><h3 className={h.stepTitle}>We ask</h3></div>
-              <p className={h.stepText}>Five or six questions, worded the way a patient asks, put to an AI assistant with web search on, from your city.</p>
-              <div className={h.stepBox}>
-                <p className={`${site.bubbleSmall} ${h.stepBubble}`}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
-                <p className={h.muted13}>An example question. The assistant is not told about your clinic.</p>
-              </div>
-            </li>
-            <li className={h.step}>
-              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>2</span><h3 className={h.stepTitle}>We record</h3></div>
-              <p className={h.stepText}>Every answer in full: which clinics were recommended, which were only listed, and the sources the assistant used.</p>
-              <div className={h.stepBox}>
-                <ul className={h.legend}>
-                  <li><span aria-hidden="true" className={h.legendSlot}><span className={h.legendBar} style={{ width: 52, background: "var(--blue)" }} /></span>Clinics recommended</li>
-                  <li><span aria-hidden="true" className={h.legendSlot}><span className={h.legendBar} style={{ width: 42 }} /></span>Clinics only listed</li>
-                  <li><span aria-hidden="true" className={h.legendSlot}><span className={h.legendBar} style={{ width: 32 }} /></span>Sources the assistant used</li>
-                </ul>
-                <p className={h.muted13}>Every report names the assistant, the model and the date.</p>
-              </div>
-            </li>
-            <li className={h.step}>
-              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>3</span><h3 className={h.stepTitle}>We check your site</h3></div>
-              <p className={h.stepText}>Hours, new-patient status, fees, practitioners, booking, speed on a phone, and whether tools can read it. Each finding comes with the page it was seen on.</p>
-              <div className={h.stepBox}>
-                <ul className={h.chips}>
-                  {["Hours", "New patients", "Fees", "Practitioners", "Booking", "Speed on a phone", "Readable by tools"].map((c) => <li key={c}>{c}</li>)}
-                </ul>
-                <p className={h.muted13}>We read only your public website.</p>
-              </div>
-            </li>
-          </ol>
+          <div className={h.foundSide}>
+            <div className={h.split} aria-hidden="true">
+              <span className={h.splitGrey} style={{ flexGrow: TESTED.notRecommended }} />
+              <span className={h.splitBlue} style={{ flexGrow: recommendedOnce }} />
+            </div>
+            <ul className={h.splitList}>
+              <li><span aria-hidden="true" className={`${h.swatch} ${h.swatchGrey}`} /><strong>{TESTED.notRecommended}</strong><span>not recommended in any of six answers</span></li>
+              <li><span aria-hidden="true" className={`${h.swatch} ${h.swatchBlue}`} /><strong>{recommendedOnce}</strong><span>recommended in at least one</span></li>
+            </ul>
+            <p className={h.muted13}>
+              Six patient questions for each clinic, put to an AI assistant with web search on. {TESTED.clinics} clinics
+              in {TESTED.cities} Ontario cities, counted on {TESTED.asOf}.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -269,33 +289,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ---------- limits ---------- */}
-      <section className={`${site.band} ${site.bandInk} ${h.reset}`} aria-labelledby="limits-h">
-        <div className={`${site.container} ${h.limitsInner}`}>
-          <div className={h.limitsTop}>
-            <div className={site.inkMain}>
-              <span className={site.inkLabel}>What can it not tell me?</span>
-              <h2 id="limits-h" className={site.display}>No one can guarantee that a clinic will be named, and we do not promise it.</h2>
-            </div>
-            <div className={site.inkSide}>
-              <Snapshot />
-              <ul className={h.ruled}>
-                <li>Five or six questions, not every way a patient might ask.</li>
-                <li>The accessibility scan is automated checks, not a full accessibility audit.</li>
-              </ul>
-            </div>
-          </div>
-          <div className={h.behind}>
-            <h3 className={h.behindTitle}>What we can stand behind: what was observed</h3>
-            <ul className={h.behindList}>
-              <li><span className={h.behindName}>Tied to evidence</span><span className={h.behindText}>Every finding is tied to stored evidence: the answer text, or the page where it was seen.</span></li>
-              <li><span className={h.behindName}>Reread before it is sent</span><span className={h.behindText}>A separate verification pass rereads each sentence against that evidence and removes any claim it cannot match.</span></li>
-              <li><span className={h.behindName}>Unknown stays unknown</span><span className={h.behindText}>What could not be checked is written “not detected” or “could not test”, never as a problem.</span></li>
-            </ul>
-          </div>
-        </div>
-      </section>
-
       {/* ---------- who is behind it ---------- */}
       <section className={`${site.band} ${h.reset}`} aria-labelledby="owner-h">
         <div className={`${site.container} ${h.owner}`}>
@@ -338,8 +331,187 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ---------- how it works: test, plan, build, run ---------- */}
+      <section className={`${site.band} ${site.bandRule} ${h.reset}`} aria-labelledby="how-h">
+        <div className={`${site.container} ${site.stack}`}>
+          <div className={h.sectionHead}>
+            <div className={h.col8}>
+              <span className={site.eyebrow}>How it works</span>
+              <h2 id="how-h" className={site.h2}>Test, plan, build, run</h2>
+            </div>
+            <Link href="/how-it-works" className={h.textLink}>Read how the test and the checks work</Link>
+          </div>
+
+          <ol className={`${h.steps} ${h.steps4}`}>
+            <li className={h.step}>
+              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>1</span><h3 className={h.stepTitle}>Test</h3></div>
+              <span className={h.stepTag}>Free</span>
+              <p className={h.stepText}>We ask an AI assistant, with web search on, the questions a patient in your city would ask, and we read your public website.</p>
+              <div className={h.stepBox}>
+                <p className={`${site.bubbleSmall} ${h.stepBubble}`}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
+                <p className={h.muted13}>An example question. The assistant is not told about your clinic.</p>
+              </div>
+            </li>
+            <li className={h.step}>
+              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>2</span><h3 className={h.stepTitle}>Plan</h3></div>
+              <span className={h.stepTag}>Free report, then the full report</span>
+              <p className={h.stepText}>You get the result for each question and three findings from your website. The full report lists every finding with its fix.</p>
+              <div className={h.stepBox}>
+                <ul className={h.resultsKey}>
+                  {(["recommended", "listed_only", "not_named"] as const).map((s) => (
+                    <li key={s} className={h[s]}><ResultMark status={s} />{RESULT[s].label}</li>
+                  ))}
+                </ul>
+                <p className={h.muted13}>Every report names the assistant, the model and the date.</p>
+              </div>
+            </li>
+            <li className={h.step}>
+              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>3</span><h3 className={h.stepTitle}>Build</h3></div>
+              <span className={h.stepTag}>Full service plan</span>
+              <p className={h.stepText}>We install the fixes, or renovate your website and run it for you. You approve each new page before it goes live.</p>
+              <div className={h.stepBox}>
+                <ul className={h.chips}>
+                  {["Hours", "New patients", "Fees", "Practitioners", "Booking", "Speed on a phone", "Readable by tools"].map((c) => <li key={c}>{c}</li>)}
+                </ul>
+                <p className={h.muted13}>What the fixes cover.</p>
+              </div>
+            </li>
+            <li className={h.step}>
+              <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>4</span><h3 className={h.stepTitle}>Run</h3></div>
+              <span className={h.stepTag}>Every month</span>
+              <p className={h.stepText}>The same questions are asked again each month. You get a report with each result before and now, and what we changed.</p>
+              <div className={h.stepBox}>
+                <ul className={h.chips}>
+                  {["Monthly retest", "Two new answer pages", "Hours and notices kept current", "A watch on the clinics named beside you"].map((c) => <li key={c}>{c}</li>)}
+                </ul>
+                <p className={h.muted13}>With the full service plan.</p>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      {/* ---------- proof every month: the monthly report ---------- */}
+      <section className={`${site.band} ${site.bandSoft} ${h.reset}`} aria-labelledby="monthly-h">
+        <div className={`${site.container} ${h.monthly}`}>
+          <div className={h.monthlyMain}>
+            <div className={h.col8}>
+              <span className={site.eyebrow}>Proof every month</span>
+              <h2 id="monthly-h" className={site.h2}>Your monthly report</h2>
+            </div>
+            <p className={site.body2}>
+              With monthly reports or the full service plan, the same questions are asked again every month. The report
+              sets each result beside the one before, so you can see what moved and what did not.
+            </p>
+            <ul className={h.monthlyList}>
+              {MONTHLY.map((m) => (
+                <li key={m.name}>
+                  <span className={h.monthlyName}>{m.name}</span>
+                  <span className={h.monthlyText}>{m.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <figure className={h.monthlyFig}>
+            <div className={h.figTag}>
+              <span className={h.chip}>Illustration</span>
+              <span className={h.muted13}>An invented clinic, with invented results.</span>
+            </div>
+            <ol className={h.compare}>
+              {compare.map((r) => (
+                <li key={r.answerId}>
+                  <span className={h.qText}>{r.question}</span>
+                  <span className={h.compareRow}>
+                    <span className={h.compareCell}>
+                      <span className={h.muted13}>Before</span>
+                      <span className={`${h.result} ${h[r.before]}`}><ResultMark status={r.before} />{RESULT[r.before].label}</span>
+                    </span>
+                    <span className={h.compareCell}>
+                      <span className={h.muted13}>Now</span>
+                      <span className={`${h.result} ${h[r.now]}`}><ResultMark status={r.now} />{RESULT[r.now].label}</span>
+                    </span>
+                    <span className={h.trend}>{rowTrend(r)}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <figcaption className={h.muted13}>A result can stay the same or go down as well as up. The report shows it either way.</figcaption>
+          </figure>
+        </div>
+      </section>
+
       {/* ---------- plans ---------- */}
       <Offers />
+
+      {/* ---------- limits ---------- */}
+      <section className={`${site.band} ${site.bandInk} ${h.reset}`} aria-labelledby="limits-h">
+        <div className={`${site.container} ${h.limitsInner}`}>
+          <div className={h.limitsTop}>
+            <div className={site.inkMain}>
+              <span className={site.inkLabel}>What can it not tell me?</span>
+              <h2 id="limits-h" className={site.display}>No one can guarantee that a clinic will be named, and we do not promise it.</h2>
+            </div>
+            <div className={site.inkSide}>
+              <Snapshot />
+              <ul className={h.ruled}>
+                <li>Five or six questions, not every way a patient might ask.</li>
+                <li>The accessibility scan is automated checks, not a full accessibility audit.</li>
+              </ul>
+            </div>
+          </div>
+          <div className={h.behind}>
+            <h3 className={h.behindTitle}>What we can stand behind: what was observed</h3>
+            <ul className={h.behindList}>
+              <li><span className={h.behindName}>Tied to evidence</span><span className={h.behindText}>Every finding is tied to stored evidence: the answer text, or the page where it was seen.</span></li>
+              <li><span className={h.behindName}>Reread before it is sent</span><span className={h.behindText}>A separate verification pass rereads each sentence against that evidence and removes any claim it cannot match.</span></li>
+              <li><span className={h.behindName}>Unknown stays unknown</span><span className={h.behindText}>What could not be checked is written “not detected” or “could not test”, never as a problem.</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- built for healthcare ---------- */}
+      <section className={`${site.band} ${h.reset}`} aria-labelledby="care-h">
+        <div className={`${site.container} ${h.care}`}>
+          <Image className={h.carePhoto} src={detailMicroscope} alt="" sizes="(max-width: 900px) 92vw, 460px" placeholder="blur" />
+          <div className={h.careMain}>
+            <div className={h.col8}>
+              <span className={site.eyebrow}>Built for healthcare</span>
+              <h2 id="care-h" className={site.h2}>Rules our AI follows on every report, page and call</h2>
+            </div>
+            <ul className={h.careList}>
+              {CARE.map((c) => (
+                <li key={c.name}>
+                  <span className={h.careName}>{c.name}</span>
+                  <span className={h.careText}>{c.text}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* ---------- questions ---------- */}
+      <section className={`${site.band} ${site.bandRule} ${h.reset}`} aria-labelledby="faq-h">
+        <div className={`${site.container} ${site.stack}`}>
+          <div className={h.sectionHead}>
+            <div className={h.col8}>
+              <span className={site.eyebrow}>Questions</span>
+              <h2 id="faq-h" className={site.h2}>Before you ask for the test</h2>
+            </div>
+            <Link href="/pricing#questions" className={h.textLink}>Contracts, cancelling and refunds</Link>
+          </div>
+          <dl className={h.faq}>
+            {FAQ.map((x) => (
+              <div key={x.q}>
+                <dt>{x.q}</dt>
+                <dd>{x.a}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </section>
 
       {/* ---------- who it is for, and if we emailed you ---------- */}
       <section className={`${site.band} ${site.bandSoft} ${h.reset}`} aria-labelledby="for-h">
@@ -381,11 +553,16 @@ export default function Home() {
       {/* ---------- closing call ---------- */}
       <ClosingBand
         id="close-h"
-        heading="Three lines in an answer. See which one is yours."
-        lead="Recommended, listed only, or not named: the free report shows the result for each question, the clinics named, and three findings from your website."
+        heading="See what AI says about your clinic."
+        lead="Free. The form takes about two minutes, and the report usually reaches you within one business day."
       >
-        <a href="#get-report" className={site.btnPrimary}>Get your clinic&apos;s free report</a>
+        <a href="#get-report" className={site.btnPrimary}>Get your free AI visibility test</a>
         <Link href="/sample" className={site.link}>See a sample report</Link>
+        {ourNumber ? (
+          <p className={site.actionsNote}>
+            Already have a report? Call <a href={`tel:${ourNumber}`} className={h.telLink}>{displayPhone(ourNumber)}</a> and our AI assistant explains it.
+          </p>
+        ) : null}
       </ClosingBand>
     </>
   );

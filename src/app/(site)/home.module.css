@@ -11,7 +11,7 @@
 .col8 { display: flex; flex-direction: column; gap: var(--space-2); }
 
 /* ---------- the headline on the picture band: kept clear of the equipment on the right ---------- */
-.heroTitle { max-width: 9.2em; }
+h1.heroTitle { max-width: 10em; font-size: var(--text-h1-s); }
 /* the blue phrase always starts its own line */
 .heroAccent { display: block; }
 
@@ -101,6 +101,23 @@
 }
 .caption { font-size: var(--text-s); color: var(--ink-2); text-wrap: pretty; }
 
+/* ---------- what we find: a count from our own tests ---------- */
+.found { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-8) var(--gap-cols-l); }
+.foundMain { flex: 5 1 420px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.foundSide { flex: 4 1 320px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.reset .foundTitle { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.foundFigure { font-family: var(--font-head); font-weight: 700; font-size: var(--text-figure-xl); line-height: .95; letter-spacing: -.02em; }
+.foundOf { font-size: .4em; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+/* one whole split in two: a thin bar, and under it the two counts with their swatches */
+.split { display: flex; gap: var(--space-half); height: 10px; }
+.split span { min-width: 0; border-radius: var(--radius-pill); }
+.splitGrey, .swatchGrey { background: var(--list-grey); }
+.splitBlue, .swatchBlue { background: var(--blue); }
+.splitList { list-style: none; padding: 0; display: flex; flex-direction: column; font-size: var(--text-m); color: var(--ink-2); border-bottom: 1px solid var(--line-strong); }
+.splitList li { padding: 10px 0; border-top: 1px solid var(--line-strong); display: flex; align-items: baseline; gap: var(--space-3); }
+.splitList strong { flex: 0 0 2.2em; font-family: var(--font-head); font-size: var(--text-h4); color: var(--ink); }
+.swatch { flex: 0 0 12px; align-self: center; width: 12px; height: 12px; border-radius: var(--radius-pill); }
+
 /* ---------- how it works ---------- */
 .sectionHead { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-2) var(--space-8); }
 .textLink { min-height: 44px; display: inline-flex; align-items: center; color: var(--blue); font-weight: 600; font-size: var(--text-m); text-underline-offset: 3px; }
@@ -115,10 +132,14 @@
 .stepText { color: var(--ink-2); text-wrap: pretty; }
 .stepBox { margin-top: auto; background: var(--soft); border-radius: var(--radius-m); padding: 16px; display: flex; flex-direction: column; gap: var(--space-3); }
 .stepBox > .stepBubble { max-width: calc(92% + 28px); }
-.legend { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-m); font-weight: 600; }
-.legend li { display: flex; align-items: center; gap: var(--space-3); }
-.legendSlot { flex: 0 0 52px; display: block; }
-.legendBar { display: block; height: 10px; border-radius: var(--radius-pill); background: var(--list-grey); }
+/* four steps: one column on a phone, two on a tablet, four on a desktop (never three and one) */
+.steps4 { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 640px) { .steps4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1080px) { .steps4 { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+/* which plan a step belongs to */
+.stepTag { align-self: flex-start; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); padding: 2px 10px; font-size: var(--text-xs); font-weight: 600; color: var(--ink-2); }
+.resultsKey { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-m); font-weight: 700; }
+.resultsKey li { display: flex; align-items: center; gap: var(--space-3); }
 .chips { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); font-size: var(--text-xs); font-weight: 500; }
 .chips li { background: var(--white); border: 1px solid var(--line-strong); border-radius: var(--radius-pill); padding: 3px 11px; }
 
@@ -184,6 +205,45 @@
 .sampleNote { font-size: var(--text-s); color: var(--muted); }
 .actions8 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-6); }
 .btnSmall { min-height: 48px; padding: 0 20px; }
+
+/* ---------- the monthly report ---------- */
+.monthly { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-8) var(--gap-cols); }
+.monthlyMain { flex: 5 1 400px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-5); }
+.monthlyList { list-style: none; padding: 0; display: flex; flex-direction: column; border-top: 2px solid var(--ink); }
+.monthlyList li { padding: 12px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; gap: var(--space-half); }
+.monthlyName { font-weight: 600; font-size: var(--text-base); }
+.monthlyText { font-size: var(--text-m); color: var(--ink-2); }
+/* an illustration of the before-and-now part of the report */
+.monthlyFig {
+  flex: 5 1 380px; min-width: 0; background: var(--white); border: 1px solid var(--line-strong); border-radius: var(--radius-l);
+  padding: var(--fluid-m); display: flex; flex-direction: column; gap: var(--space-4);
+}
+.compare { list-style: none; padding: 0; display: flex; flex-direction: column; }
+.compare li { padding: 14px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-m); }
+.compare li:first-child { border-top: 2px solid var(--ink); }
+.compareRow { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2) var(--space-6); }
+.compareCell { display: flex; flex-direction: column; gap: var(--space-half); }
+.trend { margin-left: auto; border: 1px solid var(--line-strong); border-radius: var(--radius-pill); padding: 2px 10px; font-size: var(--text-xs); font-weight: 600; color: var(--ink-2); }
+
+/* ---------- built for healthcare ---------- */
+/* the heading comes first when the two stack on a narrow screen */
+.care { display: flex; flex-wrap: wrap-reverse; align-items: center; gap: var(--space-8) var(--gap-cols); }
+.carePhoto { flex: 4 1 300px; min-width: 0; height: auto; max-height: 380px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius-l); }
+.careMain { flex: 6 1 420px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-5); }
+.careList { list-style: none; padding: 0; display: flex; flex-direction: column; border-top: 2px solid var(--ink); }
+.careList li { padding: 12px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-6); }
+.careName { flex: 0 0 220px; font-weight: 600; font-size: var(--text-base); }
+.careText { flex: 1 1 260px; min-width: 0; font-size: var(--text-m); color: var(--ink-2); text-wrap: pretty; }
+@media (max-width: 620px) { .careName { flex-basis: 100%; } }
+
+/* our phone number inside a sentence */
+.telLink { color: var(--ink); font-weight: 600; text-underline-offset: 3px; white-space: nowrap; }
+
+/* ---------- questions ---------- */
+.faq { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 0 var(--gap-cols); }
+.faq > div { padding: 16px 0; border-top: 1px solid var(--line-strong); display: flex; flex-direction: column; gap: var(--space-2); }
+.faq dt { font-family: var(--font-head); font-weight: 700; font-size: var(--text-h4); line-height: 1.25; }
+.faq dd { font-size: var(--text-m); color: var(--ink-2); text-wrap: pretty; }
 
 /* ---------- limits (ink band) ---------- */
 .limitsInner { display: flex; flex-direction: column; gap: var(--fluid-l); }

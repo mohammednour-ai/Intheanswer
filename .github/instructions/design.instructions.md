@@ -64,6 +64,7 @@ There are two sets, and each has one look:
 | `banner-reception.jpg` | Pricing picture band | Evening |
 | `room-dental.jpg`, `room-family.jpg`, `room-medspa.jpg` | The three clinic cards on the home page | Daylight |
 | `detail-ultrasound.jpg` | Under the four steps on How it works | Daylight |
+| `detail-microscope.jpg` | Beside "Built for healthcare" on the home page | Daylight |
 
 - **Evening** (picture bands): a state-of-the-art clinic room at dusk, matte charcoal walls, warm walnut, one slim line of cool blue light along the ceiling. The equipment stands on the right third. The left half is a dark, almost empty wall, because the headline sits there.
 - **Daylight** (cards and details): a premium, spotless room in soft daylight, pale oak and white, with high-value equipment in clear view (a treatment chair with microscope and scanner, an ultrasound cart, an aesthetic laser).
@@ -114,6 +115,8 @@ If the same block is needed on a second page, move it to `site.module.css` or ma
 - The site speaks as a company ("we"), not as one person. In The Answer is presented as an Ontario company with three lines of work: websites and systems, AI integration, and AI marketing. Do not invent a team size, a founding year, clients or awards.
 - A web page identifies the company by `ownerDetails().businessName`, its mailing address, phone and email. It does not print the owner's personal name (`ownerDetails().name`). Emails and reports are different: they keep a named contact, and every email must contain the business name and the mailing address or the send gate in `src/lib/sending/send.ts` blocks it.
 - Anything invented is labelled where it appears ("Illustration", "invented clinic", "Sample report").
+- A figure about our own tests comes from `src/app/(site)/tested.ts`, which records the count, the date and the query that produced it. Quote it as a count with its date ("178 of 250, counted on 22 November 2026"), never as "most clinics", and count again before changing it.
+- A claim about how the service behaves (what the AI says, what is checked, what the clinic approves) must match the code or the terms on the pricing page. The "Built for healthcare" list on the home page names where each one is enforced.
 - Say what the service does and what it cannot do. Never promise that a clinic will be named.
 - Plain sentences, the way the owner would say them to a clinic manager on the phone.
 
