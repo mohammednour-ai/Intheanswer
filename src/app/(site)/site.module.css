@@ -1,50 +1,119 @@
 /*
  * Public site system (design direction A, "The answer, shown").
- * Brand: white ground, ink, one blue accent, Space Grotesk headings, Inter text. No gradients.
+ * Brand: white ground, ink, one blue accent, Atkinson Hyperlegible Next headings, Inter text,
+ * and photographs of well-equipped clinic rooms. No gradients.
  * Page-specific styles live in each page's own module; this file holds what every page shares.
  */
 
 /* ---------- layout ---------- */
-.container { max-width: 1120px; margin: 0 auto; padding: 0 clamp(20px, 4vw, 40px); }
-.band { padding: clamp(48px, 6.5vw, 96px) 0; }
+.container { max-width: 1120px; margin: 0 auto; padding: 0 var(--gutter); }
+.band { padding: var(--band-y) 0; }
 .bandRule { border-top: 1px solid var(--line); }
 .bandSoft { background: var(--soft); }
-.bandInk { background: var(--ink); color: #fff; }
-.bandInk a { color: #fff; }
-.stack { display: flex; flex-direction: column; gap: clamp(24px, 3vw, 40px); }
-.split { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px clamp(24px, 4vw, 64px); }
+.bandInk { background: var(--ink); color: var(--white); }
+.bandInk a { color: var(--white); }
+.stack { display: flex; flex-direction: column; gap: var(--fluid-l); }
+.split { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--gap-cols); }
 .split > * { flex: 1 1 380px; min-width: 0; }
 
 /* ---------- type ---------- */
-.eyebrow { font-size: 12.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.eyebrow { font-size: var(--text-caps); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
 .bandInk .eyebrow { color: var(--line-strong); }
-.h2 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: clamp(28px, 3vw, 40px); line-height: 1.1; letter-spacing: -.015em; text-wrap: balance; }
-.lead { font-size: clamp(17px, 1.4vw, 19px); color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
+.h1 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--text-h1); line-height: 1.04; letter-spacing: -.02em; text-wrap: balance; }
+.accent { color: var(--blue); }
+.h2 { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--text-h2); line-height: 1.1; letter-spacing: -.015em; text-wrap: balance; }
+/* a statement set large: the limits band and the closing band */
+.display { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--text-display); line-height: 1.08; letter-spacing: -.02em; text-wrap: balance; }
+.lead { font-size: var(--text-lead); color: var(--ink-2); max-width: 60ch; text-wrap: pretty; }
 .body2 { color: var(--ink-2); text-wrap: pretty; }
-.fine { margin: 0; font-size: 13.5px; color: var(--muted); }
+.fine { margin: 0; font-size: var(--text-xs); color: var(--muted); }
+.link { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); font-weight: 600; text-underline-offset: 3px; }
+.link:hover { color: var(--blue); }
+
+/* ---------- picture band at the top of a page (Banner.tsx) ---------- */
+.banner { position: relative; isolation: isolate; overflow: hidden; background: var(--ink); color: var(--white); }
+.bannerPhoto { z-index: -2; object-fit: cover; object-position: 80% 50%; }
+/* flat ink over the photograph: heavier on a narrow screen, where the text has to cross the equipment */
+.banner::before { content: ""; position: absolute; inset: 0; z-index: -1; background: var(--ink); opacity: .6; }
+@media (min-width: 1100px) { .banner::before { opacity: .32; } }
+.bannerInner { min-height: var(--banner-h); display: flex; flex-direction: column; justify-content: center; padding-top: var(--hero-top); padding-bottom: var(--hero-top); }
+.bannerSmall .bannerInner { min-height: var(--banner-h-s); }
+.bannerText { max-width: 600px; display: flex; flex-direction: column; gap: var(--space-5); }
+.banner .accent { color: var(--blue-on-ink); }
+.banner .eyebrow { color: var(--line-strong); }
+.bannerLead { margin: 0; max-width: 46ch; font-size: var(--text-lead); color: var(--line); text-wrap: pretty; }
+.bannerLead strong { color: var(--white); font-weight: 600; }
+.banner .link { color: var(--white); }
+.banner .link:hover { color: var(--blue-on-ink); }
+
+/* ---------- chat bubbles: what a patient asks ---------- */
+.bubble {
+  margin: 0; max-width: 92%; background: var(--ink); color: var(--white); padding: 14px 18px;
+  border-radius: var(--radius-bubble) var(--radius-bubble) var(--radius-xs) var(--radius-bubble);
+  font-size: var(--text-lead); line-height: 1.4; font-weight: 500;
+}
+.bubbleSmall {
+  margin: 0; align-self: flex-end; max-width: 92%; background: var(--ink); color: var(--white); padding: 10px 14px;
+  border-radius: var(--radius-m) var(--radius-m) var(--radius-xs) var(--radius-m);
+  font-size: var(--text-m); line-height: 1.4;
+}
+
+/* ---------- the answer mark, drawn for one result (ResultMark.tsx) ---------- */
+.markGrey { fill: var(--list-grey); }
+.markBlue { fill: var(--blue); }
+.markListed { fill: var(--white); stroke: var(--blue); }
+.markNone { fill: none; stroke: var(--list-grey); }
+
+/* ---------- on the ink band: what a report cannot tell you (Snapshot.tsx) ---------- */
+.inkLabel { margin: 0; font-family: var(--font-body); font-size: var(--text-caps); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--blue-on-ink); }
+.inkMain { flex: 6 1 420px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.inkSide { flex: 4 1 320px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.stats { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+.stats li { border-top: 2px solid var(--blue-on-ink); padding-top: 10px; display: flex; flex-direction: column; gap: var(--space-1); }
+.statNum { font-family: var(--font-head); font-weight: 700; font-size: var(--text-h1-s); line-height: 1; color: var(--blue-on-ink); white-space: nowrap; }
+.statOr { font-size: .36em; font-weight: 500; color: var(--line-strong); padding: 0 5px; }
+.statLabel { font-size: var(--text-s); color: var(--line); }
+.inkText { margin: 0; font-size: var(--text-l); color: var(--line); text-wrap: pretty; }
+
+/* ---------- closing band (ClosingBand.tsx) ---------- */
+.close { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-cols-l); }
+.closeText { flex: 5 1 360px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-5); }
+.closeLead { margin: 0; color: var(--ink-2); max-width: 52ch; text-wrap: pretty; }
+/* The answer mark drawn large. Its proportions are its own, so these three values are not named sizes. */
+.closeArt { flex: 4 1 280px; min-width: 0; display: flex; flex-direction: column; gap: clamp(12px, 1.6vw, 22px); }
+.closeArt > span { display: block; height: clamp(44px, 4.4vw, 60px); border-radius: var(--radius-pill); background: var(--list-grey); }
+.closeArt > .closeTop { width: 81%; }
+.closeArt > .closeBottom { width: 64%; }
+.closeArt > .closeYou {
+  display: flex; align-items: center; width: 100%; background: var(--blue); color: var(--white); padding: 0 clamp(20px, 2.2vw, 30px);
+  font-family: var(--font-head); font-weight: 700; font-size: var(--text-subtitle);
+}
 
 /* ---------- buttons ---------- */
 .btnPrimary, .btnOutline {
-  min-height: 52px; display: inline-flex; align-items: center; justify-content: center; gap: 10px;
-  padding: 0 24px; border-radius: 8px; font-weight: 600; text-decoration: none; font-size: 16px;
+  min-height: 52px; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-3);
+  padding: 0 24px; border-radius: var(--radius-s); font: 600 var(--text-base)/1.55 var(--font-body); text-decoration: none; cursor: pointer;
 }
-.btnPrimary { background: var(--blue); color: #fff; border: 1.5px solid var(--blue); }
+.btnPrimary { background: var(--blue); color: var(--white); border: 1.5px solid var(--blue); }
 .btnPrimary:hover { background: var(--blue-hover); border-color: var(--blue-hover); }
-.btnOutline { background: #fff; color: var(--ink); border: 1.5px solid var(--ink); }
+.btnOutline { background: var(--white); color: var(--ink); border: 1.5px solid var(--ink); }
 .btnOutline:hover { color: var(--blue); border-color: var(--blue); }
-.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-6); }
+/* a sentence that sits beside the buttons */
+.actionsNote { flex: 1 1 280px; min-width: 0; margin: 0; font-size: var(--text-m); color: var(--ink-2); text-wrap: pretty; }
+.fineRuled { border-top: 1px solid var(--line); padding-top: 16px; }
 
 /* ---------- header ---------- */
-.header { border-bottom: 1px solid var(--line); background: #fff; }
-.bar { display: flex; align-items: center; gap: 8px clamp(12px, 2.4vw, 32px); flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
-.brand { min-height: 44px; display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink);
-  font-family: var(--font-head); font-weight: 700; font-size: 20px; letter-spacing: -.2px; white-space: nowrap; margin-right: auto; }
-.nav { list-style: none; margin: 0; padding: 0; display: flex; gap: 4px clamp(12px, 2vw, 28px); }
-.nav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; font-weight: 500; font-size: 14.5px; white-space: nowrap; }
+.header { border-bottom: 1px solid var(--line); background: var(--white); }
+.bar { display: flex; align-items: center; gap: var(--space-2) var(--fluid-s); flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; }
+.brand { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-3); text-decoration: none; color: var(--ink);
+  font-family: var(--font-head); font-weight: 700; font-size: var(--text-h4); letter-spacing: -.2px; white-space: nowrap; margin-right: auto; }
+.nav { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--space-1) var(--fluid-s); }
+.nav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-decoration: none; font-weight: 500; font-size: var(--text-s); white-space: nowrap; }
 .nav a:hover { color: var(--blue); }
 .nav a[aria-current="page"] { text-decoration: underline; text-underline-offset: 6px; text-decoration-thickness: 2px; }
-.headerCta { min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: 8px; background: var(--blue); color: #fff;
-  font-weight: 600; font-size: 14.5px; text-decoration: none; white-space: nowrap; }
+.headerCta { min-height: 44px; display: inline-flex; align-items: center; padding: 0 16px; border-radius: var(--radius-s); background: var(--blue); color: var(--white);
+  font-weight: 600; font-size: var(--text-s); text-decoration: none; white-space: nowrap; }
 .headerCta:hover { background: var(--blue-hover); }
 @media (max-width: 719px) {
   /* phone: brand and button on the first row, the four links spread across the second */
@@ -54,54 +123,68 @@
 @media (min-width: 720px) { .navWrap { order: 0; } .headerCta { order: 1; } }
 
 /* ---------- footer ---------- */
-.footer { border-top: 2px solid var(--ink); padding: clamp(28px, 3.4vw, 44px) 0 clamp(32px, 4vw, 52px); }
-.footerGrid { display: flex; flex-wrap: wrap; gap: 24px clamp(32px, 6vw, 96px); }
-.footerWho { flex: 3 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 10px; font-size: 14.5px; color: var(--ink-2); }
+.footer { border-top: 2px solid var(--ink); padding: var(--fluid-l) 0; }
+.footerGrid { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--gap-cols-l); }
+.footerWho { flex: 3 1 340px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-s); color: var(--ink-2); }
 .footerWho p { margin: 0; }
 .footerWho a { color: var(--ink); text-underline-offset: 3px; white-space: nowrap; }
-.footerBrand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-family: var(--font-head); font-weight: 700; font-size: 20px; letter-spacing: -.2px; }
+.footerBrand { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); font-family: var(--font-head); font-weight: 700; font-size: var(--text-h4); letter-spacing: -.2px; }
 .footerNav { flex: 2 1 280px; min-width: 0; }
-.footerNav ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; font-size: 14.5px; font-weight: 500; }
+.footerNav ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 var(--space-6); font-size: var(--text-s); font-weight: 500; }
 .footerNav a { min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); text-underline-offset: 3px; }
 
 /* ---------- plan cards (home and pricing) ---------- */
-.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: clamp(16px, 1.8vw, 24px); }
-.plan { grid-row: span 5; display: grid; grid-template-rows: subgrid; row-gap: 0; border: 1.5px solid var(--line-strong); border-radius: 20px; padding: clamp(20px, 2.2vw, 28px); background: #fff; }
-.planMain { background: var(--ink); border-color: var(--ink); color: #fff; }
-.planHead { padding-bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
-.planName { margin: 0; font-family: var(--font-body); font-size: 13px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: var(--fluid-s); }
+.plan { grid-row: span 5; display: grid; grid-template-rows: subgrid; row-gap: 0; border: 1.5px solid var(--line-strong); border-radius: var(--radius-l); padding: var(--fluid-m); background: var(--white); }
+.planMain { background: var(--ink); border-color: var(--ink); color: var(--white); }
+.planHead { padding-bottom: 16px; display: flex; flex-direction: column; gap: var(--space-2); }
+.planName { margin: 0; font-family: var(--font-body); font-size: var(--text-xs); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
 .planMain .planName { color: var(--line-strong); }
-.planPrice { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: 44px; line-height: 1; letter-spacing: -.02em; }
-.planSub { margin: 0; font-size: 15px; color: var(--ink-2); }
+.planPrice { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--text-figure); line-height: 1; letter-spacing: -.02em; }
+.planSub { margin: 0; font-size: var(--text-m); color: var(--ink-2); }
 .planMain .planSub { color: var(--line); }
-.planRow { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; gap: 6px; }
+.planRow { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; gap: var(--space-2); }
 .planRowFirst { border-top: 2px solid var(--ink); }
 .planMain .planRow { border-bottom-color: var(--muted); }
-.planMain .planRowFirst { border-top-color: #fff; }
-.planRow dt { font-size: 12.5px; font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.planMain .planRowFirst { border-top-color: var(--white); }
+.planRow dt { font-size: var(--text-caps); font-weight: 600; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
 .planMain .planRow dt { color: var(--line-strong); }
 .planRow dd { margin: 0; }
-.planValue { font-family: var(--font-head); font-weight: 700; font-size: 21px; line-height: 1.25; }
-.planRetest { font-weight: 600; font-size: 17px; line-height: 1.35; }
-.weDo { display: inline-flex; align-items: center; min-height: 32px; padding: 2px 14px; border-radius: 999px; background: var(--blue); color: #fff;
-  font-family: var(--font-head); font-weight: 700; font-size: 19px; line-height: 1.25; }
-.meter { display: flex; gap: 3px; margin-bottom: 6px; }
-.meter span { flex: 1; height: 10px; border-radius: 3px; background: var(--line); }
+.planValue { font-family: var(--font-head); font-weight: 700; font-size: var(--text-h3); line-height: 1.25; }
+.planRetest { font-weight: 600; font-size: var(--text-l); line-height: 1.35; }
+.weDo { display: inline-flex; align-items: center; min-height: 32px; padding: 2px 14px; border-radius: var(--radius-pill); background: var(--blue); color: var(--white);
+  font-family: var(--font-head); font-weight: 700; font-size: var(--text-h4); line-height: 1.25; }
+.meter { display: flex; gap: var(--space-1); margin-bottom: 6px; }
+.meter span { flex: 1; height: 10px; border-radius: var(--radius-xs); background: var(--line); }
 .meter .on { background: var(--ink); }
 .planMain .meter span { background: var(--ink-2); }
-.planMain .meter .on { background: #fff; }
-.planList { margin: 0; padding: 16px 0 0 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14.5px; color: var(--ink-2); }
+.planMain .meter .on { background: var(--white); }
+.planList { margin: 0; padding: 16px 0 0 18px; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-m); color: var(--ink-2); }
 .planMain .planList { color: var(--line); }
-.glance { list-style: none; margin: 18px 0 0; padding: 0; border-top: 2px solid var(--ink); display: flex; flex-direction: column; font-size: 15px; }
+.glance { list-style: none; margin: 18px 0 0; padding: 0; border-top: 2px solid var(--ink); display: flex; flex-direction: column; font-size: var(--text-m); }
 .glance li { padding: 10px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; }
 .glance strong { font-weight: 700; }
 @media (min-width: 720px) { .glance { display: none; } }
 
 /* ---------- kept for the simpler pages (contact, privacy, crawler, unsubscribe, sample) ---------- */
-.prose { max-width: 70ch; padding: clamp(40px, 5vw, 72px) 0; }
-.prose h1 { font-size: clamp(34px, 4vw, 52px); letter-spacing: -.02em; margin-bottom: .4em; }
+.prose { max-width: 70ch; padding: var(--hero-top) 0 var(--band-y); }
+.prose h1 { font-size: var(--text-h1-s); letter-spacing: -.02em; margin-bottom: .4em; }
 .prose h2 { margin-top: 1.6em; }
+/* a short page with one task on it */
+.proseNarrow { max-width: 560px; }
+/* a plain page that holds something wide, such as the sample report */
+.proseWide { max-width: none; }
 .section { padding: 40px 0; border-top: 1px solid var(--line); }
-.box { border: 1.5px solid var(--ink); border-radius: 12px; padding: 20px; background: #fff; }
-.frame { width: 100%; height: 900px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.box { border: 1.5px solid var(--ink); border-radius: var(--radius-m); padding: 20px; background: var(--white); }
+.frame { width: 100%; height: 900px; border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--white); }
 .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+
+/* ---------- forms ---------- */
+.form { margin: 0; display: flex; flex-direction: column; gap: var(--space-4); }
+.field { display: flex; flex-direction: column; gap: var(--space-1); }
+.field label { margin: 0; }
+/* a tick box with its sentence beside it */
+.check { margin: 0; display: flex; align-items: flex-start; gap: var(--space-3); font-weight: 400; font-size: var(--text-m); }
+.check input { flex: 0 0 auto; width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--blue); }
+/* a button that keeps its own width inside a form */
+.go { align-self: flex-start; }

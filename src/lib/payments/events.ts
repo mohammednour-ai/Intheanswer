@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { env, ownerDetails } from "../env";
+import { env } from "../env";
 import { enqueue } from "../jobs/queue";
 import { queueMessage, queueOwnerMail, signature } from "../sending/outbox";
 import { randomToken } from "../tokens";
@@ -253,7 +253,6 @@ async function checkoutCompleted(ev: StripeEventLike): Promise<void> {
 }
 
 function receipt(x: { order: OrderRow; plan: Plan; name: string; tax: number | null; months: number | null; minTermEnd: Date | null; duplicate: boolean }) {
-  const o = ownerDetails();
   const monthly = x.plan !== "report";
   const lines = [
     "Hello,",

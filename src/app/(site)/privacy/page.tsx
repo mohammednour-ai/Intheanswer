@@ -11,10 +11,10 @@ export const metadata: Metadata = {
 export default function Privacy() {
   const o = ownerDetails();
   return (
-    <div className="wrap">
+    <div className={styles.container}>
       <article className={styles.prose}>
       <h1>Privacy</h1>
-      <p>In The Answer is run by {o.name}, {o.businessName}, {o.mailingAddress}. Questions about this page: <a href={`mailto:${o.email}`}>{o.email}</a>.</p>
+      <p>{o.businessName}, {o.mailingAddress}, is responsible for the information described on this page. Questions about this page: <a href={`mailto:${o.email}`}>{o.email}</a>.</p>
 
       <h2>What we collect about clinics</h2>
       <ul>
@@ -33,7 +33,7 @@ export default function Privacy() {
       <p>We send a clinic its report because the address is published by the clinic for business contact and the report is about that clinic&apos;s business. We write at most twice unless you reply. Every email names the sender, gives a mailing address and has an unsubscribe link that works at once without a login. We do not write to clinics whose site says not to send solicitations.</p>
 
       <h2>Phone calls from our AI assistant</h2>
-      <p>We phone a clinic only when someone at the clinic asks us to, on the page its report links to or by writing to us. The call is made by In The Answer Copilot, an AI assistant that says so at the start of every call. We keep the number, when and how the call was asked for, and a written transcript of the call so that {o.name} can review it; we do not keep an audio recording. Transcripts are deleted after 180 days. Tell the assistant &ldquo;do not call&rdquo; and the call ends and that number is never called again. Please do not share patient information on a call.</p>
+      <p>We phone a clinic only when someone at the clinic asks us to, on the page its report links to or by writing to us. The call is made by In The Answer Copilot, an AI assistant that says so at the start of every call. We keep the number, when and how the call was asked for, and a written transcript of the call so that a person at In The Answer can review it; we do not keep an audio recording. Transcripts are deleted after 180 days. Tell the assistant &ldquo;do not call&rdquo; and the call ends and that number is never called again. Please do not share patient information on a call.</p>
 
       <h2>How to stop emails or remove information</h2>
       <p>Use the link in any email or the <Link href="/unsubscribe">unsubscribe page</Link>. To have your clinic&apos;s report and stored pages deleted, email <a href={`mailto:${o.email}`}>{o.email}</a>. We keep only the address on a do-not-contact list so we do not write again.</p>

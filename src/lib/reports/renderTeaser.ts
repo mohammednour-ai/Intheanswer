@@ -217,7 +217,7 @@ export function renderTeaser(d: TeaserData): string {
 <footer class="rp-foot"><div class="rp-wrap"><div class="rp-footin">
   ${copilotByline(d.owner.name)}
   <p class="rp-limits">${esc(d.limits)}</p>
-  <p class="rp-contact">In The Answer · intheanswer.ca · ${esc(d.owner.name)} · ${esc(d.owner.businessName)} · ${esc(d.owner.mailingAddress)} · ${esc(d.owner.phone)} · <a href="mailto:${esc(d.owner.email)}">${esc(d.owner.email)}</a></p>
+  <p class="rp-contact">${esc(d.owner.businessName)} · intheanswer.ca · ${esc(d.owner.name)} · ${esc(d.owner.mailingAddress)} · ${esc(d.owner.phone)} · <a href="mailto:${esc(d.owner.email)}">${esc(d.owner.email)}</a></p>
 </div></div></footer>
 </div>`;
   return documentShell(`${d.clinic.name}: In the answer ${d.score.recommended} of ${d.score.total}`, body);

@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ownerDetails } from "@/lib/env";
 import { Offers } from "../Offers";
+import { ClosingBand } from "../ClosingBand";
+import { Banner } from "../Banner";
 import site from "../site.module.css";
 import styles from "./pricing.module.css";
+import bannerReception from "../images/banner-reception.jpg";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -25,23 +28,17 @@ export default function Pricing() {
   const contract = `${o.contractTerm} contract`;
   return (
     <>
-      <section className={styles.hero} aria-labelledby="hero-h">
-        <div className={`${site.container} ${styles.heroRow}`}>
-          <div className={styles.heroMain}>
-            <span className={site.eyebrow}>Pricing</span>
-            <h1 id="hero-h" className={styles.h1}>
-              What it costs, and <span className={styles.accent}>what you commit to.</span>
-            </h1>
-          </div>
-          <div className={styles.heroSide}>
-            <p className={styles.heroLead}>The first report is free. It shows your result for each question, the clinics named, and three findings from your website.</p>
-            <div className={site.actions}>
-              <Link className={site.btnPrimary} href="/#get-report">Start with the free report</Link>
-              <Link className={styles.textLink} href="/sample">See a sample report</Link>
-            </div>
-          </div>
+      <Banner id="hero-h" photo={bannerReception} small>
+        <span className={site.eyebrow}>Pricing</span>
+        <h1 id="hero-h" className={site.h1}>
+          What it costs, and <span className={site.accent}>what you commit to.</span>
+        </h1>
+        <p className={site.bannerLead}>The first report is free. It shows your result for each question, the clinics named, and three findings from your website.</p>
+        <div className={site.actions}>
+          <Link className={site.btnPrimary} href="/#get-report">Start with the free report</Link>
+          <Link className={site.link} href="/sample">See a sample report</Link>
         </div>
-      </section>
+      </Banner>
 
       <Offers heading="Paid options" eyebrow="After the free report" />
 
@@ -146,23 +143,14 @@ export default function Pricing() {
         </div>
       </section>
 
-      <section className={site.band} aria-labelledby="close-h">
-        <div className={`${site.container} ${styles.closeRow}`}>
-          <div className={styles.closeMain}>
-            <h2 id="close-h" className={styles.closeH2}>Three lines in an answer. See which one is yours.</h2>
-            <p className={styles.closeLead}>Recommended, listed only, or not named: the free report shows the result for each question, the clinics named, and three findings from your website.</p>
-            <div className={site.actions}>
-              <Link className={site.btnPrimary} href="/#get-report">Get your clinic&rsquo;s free report</Link>
-              <Link className={styles.textLink} href="/sample">See a sample report</Link>
-            </div>
-          </div>
-          <div className={styles.bars} aria-hidden="true">
-            <span className={`${styles.bar} ${styles.barTop}`} />
-            <span className={`${styles.bar} ${styles.barYou}`}>Your clinic?</span>
-            <span className={`${styles.bar} ${styles.barBottom}`} />
-          </div>
-        </div>
-      </section>
+      <ClosingBand
+        id="close-h"
+        heading="Three lines in an answer. See which one is yours."
+        lead="Recommended, listed only, or not named: the free report shows the result for each question, the clinics named, and three findings from your website."
+      >
+        <Link className={site.btnPrimary} href="/#get-report">Get your clinic&rsquo;s free report</Link>
+        <Link className={site.link} href="/sample">See a sample report</Link>
+      </ClosingBand>
     </>
   );
 }

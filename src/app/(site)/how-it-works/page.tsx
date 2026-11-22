@@ -1,7 +1,14 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
+import { ResultMark } from "../ResultMark";
+import { Snapshot } from "../Snapshot";
+import { ClosingBand } from "../ClosingBand";
+import { Banner } from "../Banner";
 import site from "../site.module.css";
 import styles from "./how.module.css";
+import bannerImaging from "../images/banner-imaging-room.jpg";
+import detailUltrasound from "../images/detail-ultrasound.jpg";
 
 export const metadata: Metadata = {
   title: "How it works",
@@ -46,27 +53,18 @@ function StepTag({ n, name }: { n: number; name: string }) {
   );
 }
 
-/** The three-line mark, with the middle line drawn for each result. */
-function ResultMark({ kind }: { kind: "rec" | "listed" | "none" }) {
-  return (
-    <svg width="44" height="38" viewBox="0 0 120 104" aria-hidden="true">
-      <rect x="8" y="8" width="84" height="20" rx="10" fill="#9AA4B2" />
-      {kind === "rec" && <rect x="8" y="42" width="104" height="20" rx="10" fill="#1F4FD8" />}
-      {kind === "listed" && <rect x="11" y="45" width="98" height="14" rx="7" fill="#FFFFFF" stroke="#1F4FD8" strokeWidth="6" />}
-      {kind === "none" && <rect x="11" y="45" width="98" height="14" rx="7" fill="none" stroke="#9AA4B2" strokeWidth="5" strokeDasharray="9 9" />}
-      <rect x="8" y="76" width="64" height="20" rx="10" fill="#9AA4B2" />
-    </svg>
-  );
-}
-
 export default function HowItWorks() {
   return (
     <>
-      <section className={styles.hero} aria-labelledby="hero-h">
+      <Banner id="hero-h" photo={bannerImaging} small>
+        <h1 id="hero-h" className={site.h1}>How it works</h1>
+        <p className={site.bannerLead}>How In The Answer tests AI assistants with patient questions, checks a clinic&rsquo;s website, and verifies every claim before a report is sent.</p>
+      </Banner>
+
+      <section className={styles.hero} aria-label="On this page">
         <div className={`${site.container} ${styles.heroRow}`}>
           <div className={styles.heroMain}>
-            <h1 id="hero-h" className={styles.h1}>How it works</h1>
-            <p className={styles.heroLead}>How In The Answer tests AI assistants with patient questions, checks a clinic&rsquo;s website, and verifies every claim before a report is sent.</p>
+            <span className={site.eyebrow}>The method, in four steps</span>
             <ol className={styles.steps} aria-label="The method, in order">
               {STEPS.map((s, i) => (
                 <li key={s.href}>
@@ -77,6 +75,7 @@ export default function HowItWorks() {
                 </li>
               ))}
             </ol>
+            <Image className={styles.heroPhoto} src={detailUltrasound} alt="" sizes="(max-width: 900px) 92vw, 600px" placeholder="blur" />
           </div>
           <nav className={styles.toc} aria-labelledby="toc-h">
             <h2 id="toc-h" className={styles.tocTitle}>Seven questions on this page</h2>
@@ -101,7 +100,7 @@ export default function HowItWorks() {
           <div className={`${styles.stepSide} ${styles.example}`}>
             <div className={styles.ask}>
               <span className={styles.askLabel}>An example question</span>
-              <p className={styles.bubble}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
+              <p className={site.bubble}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
             </div>
             <dl className={styles.facts}>
               <div><dt>Questions</dt><dd>Five or six</dd></div>
@@ -124,15 +123,15 @@ export default function HowItWorks() {
             <h3 className={styles.resultsTitle}>One of three results for each question</h3>
             <ul className={styles.resultList}>
               <li>
-                <ResultMark kind="rec" />
+                <ResultMark status="recommended" width={44} />
                 <span className={styles.resultText}><span className={`${styles.resultName} ${styles.rec}`}>Recommended</span><span className={styles.resultDesc}>Put forward as an option.</span></span>
               </li>
               <li>
-                <ResultMark kind="listed" />
+                <ResultMark status="listed_only" width={44} />
                 <span className={styles.resultText}><span className={`${styles.resultName} ${styles.listed}`}>Listed only</span><span className={styles.resultDesc}>Mentioned or cited without being recommended.</span></span>
               </li>
               <li>
-                <ResultMark kind="none" />
+                <ResultMark status="not_named" width={44} />
                 <span className={styles.resultText}><span className={`${styles.resultName} ${styles.notNamed}`}>Not named</span><span className={styles.resultDesc}>Did not appear.</span></span>
               </li>
             </ul>
@@ -203,19 +202,14 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      <section className={`${site.bandInk} ${styles.limits}`} aria-labelledby="limits-h">
+      <section className={`${site.band} ${site.bandInk}`} aria-labelledby="limits-h">
         <div className={`${site.container} ${styles.row}`}>
-          <div className={styles.limitsMain}>
-            <h2 id="limits-h" className={styles.limitsLabel}>What are the limits?</h2>
-            <p className={styles.limitsStatement}>No one can guarantee that a clinic will be named, and we do not promise it.</p>
+          <div className={site.inkMain}>
+            <h2 id="limits-h" className={site.inkLabel}>What are the limits?</h2>
+            <p className={site.display}>No one can guarantee that a clinic will be named, and we do not promise it.</p>
           </div>
-          <div className={styles.limitsSide}>
-            <ul className={styles.snapshot} aria-label="A report is a snapshot">
-              <li><span className={styles.snapNum}>1</span><span className={styles.snapLabel}>assistant</span></li>
-              <li><span className={styles.snapNum}>5<span className={styles.snapOr}>or</span>6</span><span className={styles.snapLabel}>questions</span></li>
-              <li><span className={styles.snapNum}>1</span><span className={styles.snapLabel}>day</span></li>
-            </ul>
-            <p className={styles.limitsText}>A report is a snapshot: one assistant, a handful of questions, one day. Assistants change what they say, and results differ between assistants and apps.</p>
+          <div className={site.inkSide}>
+            <Snapshot />
           </div>
         </div>
       </section>
@@ -265,22 +259,13 @@ export default function HowItWorks() {
         </div>
       </section>
 
-      <section className={site.band} aria-labelledby="close-h">
-        <div className={`${site.container} ${styles.closeRow}`}>
-          <div className={styles.closeMain}>
-            <h2 id="close-h" className={styles.closeH2}>Get your clinic&rsquo;s free report</h2>
-            <p className={styles.closeLead}>Free. We read only your public website. We email the report once and do not add you to a list.</p>
-            <div className={site.actions}>
-              <Link className={site.btnPrimary} href="/#get-report">Get your free report</Link>
-            </div>
-          </div>
-          <div className={styles.bars} aria-hidden="true">
-            <span className={`${styles.bar} ${styles.barTop}`} />
-            <span className={`${styles.bar} ${styles.barYou}`}>Your clinic?</span>
-            <span className={`${styles.bar} ${styles.barBottom}`} />
-          </div>
-        </div>
-      </section>
+      <ClosingBand
+        id="close-h"
+        heading="Get your clinic’s free report"
+        lead="Free. We read only your public website. We email the report once and do not add you to a list."
+      >
+        <Link className={site.btnPrimary} href="/#get-report">Get your free report</Link>
+      </ClosingBand>
     </>
   );
 }

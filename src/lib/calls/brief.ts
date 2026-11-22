@@ -75,8 +75,10 @@ export function allowedAmounts(): number[] {
 
 function companyLines(): string[] {
   const o = ownerDetails();
+  // the business name is said only when it is not the brand itself
+  const legal = o.businessName.trim().toLowerCase() === "in the answer" ? "" : ` (business name: ${o.businessName})`;
   return [
-    `In The Answer is a small Ontario service run by ${o.name} (${o.businessName}). Website: intheanswer.ca.`,
+    `In The Answer is an Ontario company${legal} that builds websites and systems, connects AI to them, and does AI marketing. Website: intheanswer.ca.`,
     "It tests whether AI assistants name a local clinic when patients ask for a recommendation, sends the clinic a free report, and offers to fix what it finds.",
     "How the test works: we ask an AI assistant, with web search turned on, the questions a patient in the clinic's city would ask, and record every answer in full, including which clinics it named and the sources it used.",
     "How the website check works: we read the clinic's own public website (robots.txt is respected) and look at what it states for patients and for the tools assistants use to read it, such as hours, whether new patients are accepted, fees and insurance, who the practitioners are, and whether the site can be read on a phone and by AI crawlers.",

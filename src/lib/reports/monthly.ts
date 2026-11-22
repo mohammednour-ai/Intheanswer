@@ -223,7 +223,7 @@ ${offer}
 <footer class="foot">
   ${copilotByline(d.owner.name)}
   <div>${esc(d.limits)}</div>
-  <div>In The Answer · intheanswer.ca · ${esc(d.owner.name)} · ${esc(d.owner.businessName)} · ${esc(d.owner.mailingAddress)} · ${esc(d.owner.phone)} · ${esc(d.owner.email)}</div>
+  <div>${esc(d.owner.businessName)} · intheanswer.ca · ${esc(d.owner.name)} · ${esc(d.owner.mailingAddress)} · ${esc(d.owner.phone)} · ${esc(d.owner.email)}</div>
 </footer>
 </div>`;
   return documentShell(`${d.clinic.name}: ${monthly ? `monthly report ${d.cycle}` : "retest"}`, body);

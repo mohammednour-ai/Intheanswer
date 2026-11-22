@@ -11,11 +11,12 @@ export const metadata: Metadata = {
 export default function Contact() {
   const o = ownerDetails();
   return (
-    <div className="wrap">
+    <div className={styles.container}>
       <article className={styles.prose}>
       <h1>Contact</h1>
-      <p>In The Answer is run by {o.name}, {o.businessName}.</p>
+      <p>In The Answer is an Ontario company for websites, systems and AI.</p>
       <p>
+        Business name: {o.businessName}<br />
         Email: <a href={`mailto:${o.email}`}>{o.email}</a><br />
         Phone: <a href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}>{o.phone}</a><br />
         Mail: {o.mailingAddress}

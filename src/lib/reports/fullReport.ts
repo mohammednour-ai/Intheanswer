@@ -213,7 +213,7 @@ ${d.onMonthlyPlan ? "" : `<section class="offer main" style="gap:12px">
   ${copilotByline(o.name)}
   <div>This report reflects one assistant, the questions listed, on the test date. Assistants change what they recommend, and results can differ between assistants. These fixes make your clinic easier to understand and quote. No one can guarantee that a clinic will be named.</div>
   <div>All wording for your site is a draft. Please confirm every fact before publishing. ${esc(d.regulatorNote)}</div>
-  <div>In The Answer · intheanswer.ca · ${esc(o.name)} · ${esc(o.businessName)} · ${esc(o.mailingAddress)} · ${esc(o.phone)} · ${esc(o.email)}</div>
+  <div>${esc(o.businessName)} · intheanswer.ca · ${esc(o.name)} · ${esc(o.mailingAddress)} · ${esc(o.phone)} · ${esc(o.email)}</div>
 </footer>
 </div>`;
   return documentShell(`${d.clinic.name}: full report`, body);

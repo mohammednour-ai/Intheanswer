@@ -306,6 +306,26 @@ Full)"). `src/lib/brand.ts` holds its palette and the three-bar mark; `src/lib/r
 follows the teaser artboard. Report wording is always generated from stored evidence, never copied from
 the mock-up.
 
+The pages a clinic sees follow written rules in `.github/instructions/design.instructions.md`. Colours,
+type sizes, corner radii and shared spacing are named once in `src/app/globals.css`. Three commands go
+with them:
+
+```bash
+npm run design:check             # fails on a hand-typed colour, size, radius or font, and on gradients and shadows (also runs in CI)
+npm run shots -- before          # with `npm run dev` running: pictures of every public page at 390, 768 and 1280px in output/shots/before/
+npm run shots -- --compare before after   # how much each picture changed; changes in red in output/shots/before-vs-after/
+npm run brand:assets             # redraws the tab icons and the share card after a change to the mark, colours, heading font or home banner photo
+```
+
+Reports are styled separately (`src/lib/reports/html.ts`, with fonts embedded in each report), so a
+brand change has to be made there as well as in `globals.css`. The heading font is Atkinson
+Hyperlegible Next: it is named in `--font-head` (globals.css), imported in `src/app/layout.tsx`, set as
+`HEAD_FONT` in `src/lib/reports/html.ts`, and its files are listed in `next.config.ts` so that the
+deployment includes them.
+
+The photographs on the public pages (`src/app/(site)/images/`) are generated images, labelled as such
+in the site footer. The design rules describe the two looks they follow and where each one is used.
+
 ## Only the owner can sign in
 
 1. Supabase > Authentication > Providers > Email: enable; **disable "Allow new users to sign up"**.

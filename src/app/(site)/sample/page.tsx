@@ -9,8 +9,8 @@ export const metadata: Metadata = {
 
 export default function Sample() {
   return (
-    <div className="wrap">
-      <section style={{ padding: "clamp(40px, 5vw, 72px) 0" }}>
+    <div className={styles.container}>
+      <section className={`${styles.prose} ${styles.proseWide}`}>
       <h1>Sample report</h1>
       <p className={styles.lead}>
         <strong>This is a sample. The clinic, the other clinics named and the answers are invented</strong> to show the

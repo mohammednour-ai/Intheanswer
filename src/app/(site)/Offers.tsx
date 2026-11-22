@@ -113,11 +113,11 @@ export function Offers({
             Contract, cancelling and refunds
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
           </Link>
-          <p className={styles.body2} style={{ flex: "1 1 280px", minWidth: 0, margin: 0, fontSize: 15 }}>
+          <p className={styles.actionsNote}>
             All three start in the same place. You read your free report first, and buy from it only if you want to.
           </p>
         </div>
-        <p className={styles.fine} style={{ borderTop: "1px solid var(--line)", paddingTop: 16 }}>
+        <p className={`${styles.fine} ${styles.fineRuled}`}>
           {priceNote()} No one can guarantee what an AI assistant will say; we report what it said and fix what we can see.
         </p>
       </div>

@@ -27,9 +27,9 @@ export function Shell({ children, wide = false }: { children: React.ReactNode; w
       <footer className={s.footer}>
         <div className={`${site.container} ${s.footIn}`}>
           <div className={s.footText}>
-            <p>In The Answer is run by {o.name}, {o.businessName}.</p>
+            <p>An Ontario company for websites, systems and AI.</p>
             <p>
-              {o.mailingAddress} · {o.phone} · <a href={`mailto:${o.email}`}>{o.email}</a>
+              {o.businessName} · {o.mailingAddress} · {o.phone} · <a href={`mailto:${o.email}`}>{o.email}</a>
             </p>
           </div>
           <nav aria-label="Footer">

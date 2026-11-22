@@ -13,7 +13,7 @@ export function esc(s: string | number | null | undefined): string {
 }
 
 let fontCss: string | null = null;
-/** Space Grotesk + Inter embedded as data URIs so the PDF and the hosted page need no network. */
+/** The heading font (HEAD_FONT) + Inter embedded as data URIs so the PDF and the hosted page need no network. */
 export function embeddedFonts(): string {
   if (fontCss) return fontCss;
   // Every path is written out in full (no computed segments) so the build's
@@ -24,9 +24,9 @@ export function embeddedFonts(): string {
     { family: "Inter", weight: 400, file: path.join(cwd, "node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2") },
     { family: "Inter", weight: 600, file: path.join(cwd, "node_modules/@fontsource/inter/files/inter-latin-600-normal.woff2") },
     { family: "Inter", weight: 700, file: path.join(cwd, "node_modules/@fontsource/inter/files/inter-latin-700-normal.woff2") },
-    { family: "Space Grotesk", weight: 500, file: path.join(cwd, "node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-500-normal.woff2") },
-    { family: "Space Grotesk", weight: 600, file: path.join(cwd, "node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-600-normal.woff2") },
-    { family: "Space Grotesk", weight: 700, file: path.join(cwd, "node_modules/@fontsource/space-grotesk/files/space-grotesk-latin-700-normal.woff2") },
+    { family: HEAD_FONT, weight: 500, file: path.join(cwd, "node_modules/@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-500-normal.woff2") },
+    { family: HEAD_FONT, weight: 600, file: path.join(cwd, "node_modules/@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-600-normal.woff2") },
+    { family: HEAD_FONT, weight: 700, file: path.join(cwd, "node_modules/@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-700-normal.woff2") },
   ];
   let missing = 0;
   const css = faces
@@ -52,7 +52,9 @@ export function embeddedFonts(): string {
  * reports, which use the classes above, are unaffected. Mobile first; the question rows become a
  * three-column table from 920px and in print. Nothing dark sits behind body text, on screen or paper.
  */
-const SG = `"Space Grotesk",Inter,sans-serif`;
+/** The heading typeface. The share card (scripts/brand-assets.ts) uses the same name. */
+export const HEAD_FONT = "Atkinson Hyperlegible Next";
+const SG = `"${HEAD_FONT}",Inter,sans-serif`;
 const TEASER_CSS = `
 .rp{font-size:16px;line-height:1.55;color:var(--ink);-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .rp a{color:var(--ink);text-underline-offset:3px}
@@ -236,12 +238,12 @@ export const REPORT_CSS = `
 *{box-sizing:border-box}
 html,body{margin:0;background:#fff;color:var(--ink)}
 body{font:13px/1.45 Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-h1,h2,h3{font-family:"Space Grotesk",Inter,sans-serif;margin:0}
+h1,h2,h3{font-family:${SG};margin:0}
 a{color:var(--blue)}a:hover{color:#163A9E}
 .page{max-width:816px;margin:0 auto;padding:44px 48px;display:flex;flex-direction:column;gap:22px}
 .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:2px solid var(--ink);padding-bottom:12px}
 .brand{display:flex;align-items:center;gap:10px}
-.wordmark{font-family:"Space Grotesk",Inter,sans-serif;font-weight:700;font-size:20px;letter-spacing:-.2px}
+.wordmark{font-family:${SG};font-weight:700;font-size:20px;letter-spacing:-.2px}
 .doc{font-size:12px;color:var(--muted);text-align:right}
 .label{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-weight:600}
 .who{display:flex;flex-direction:column;gap:6px}
@@ -251,7 +253,7 @@ h1{font-size:28px;line-height:1.15;font-weight:700}
 .hero{display:flex;gap:20px;align-items:stretch}
 .score{flex:0 0 250px;background:var(--ink);color:#fff;border-radius:10px;padding:20px 22px;display:flex;flex-direction:column;gap:6px}
 .score .label{color:#C9D1DC}
-.score .num{font-family:"Space Grotesk",Inter,sans-serif;font-size:60px;line-height:1;font-weight:700}
+.score .num{font-family:${SG};font-size:60px;line-height:1;font-weight:700}
 .score .num span{font-size:26px;font-weight:500;color:#C9D1DC}
 .score .cap{font-size:12.5px;color:#E6EAF0}
 .summary{flex:1;background:var(--ground);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:8px;justify-content:center}
@@ -271,7 +273,7 @@ th:first-child,td:first-child{padding-left:0}th:last-child,td:last-child{padding
 .key{font-size:11.5px;color:var(--muted)}
 .findings{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
 .finding{background:var(--ground);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;break-inside:avoid}
-.finding .n{font-family:"Space Grotesk",Inter,sans-serif;font-size:22px;font-weight:700;color:var(--blue);line-height:1}
+.finding .n{font-family:${SG};font-size:22px;font-weight:700;color:var(--blue);line-height:1}
 .finding .t{font-weight:600}
 .finding p{margin:0;color:var(--body2);font-size:12.5px}
 .finding .src{font-size:11px;color:var(--muted);word-break:break-all}
@@ -279,7 +281,7 @@ th:first-child,td:first-child{padding-left:0}th:last-child,td:last-child{padding
 .offers.three{grid-template-columns:1fr 1fr}.offers.three .offer.main{grid-column:1 / -1}
 .price span.dim{color:var(--muted)}
 .offer{border:1.5px solid var(--line);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:8px;break-inside:avoid}
-.price{font-family:"Space Grotesk",Inter,sans-serif;font-weight:700;font-size:22px}
+.price{font-family:${SG};font-weight:700;font-size:22px}
 .price span{font-size:14px;font-weight:500;color:var(--tint)}
 .offer p{margin:0;color:var(--body2);font-size:12.5px}
 .btn{align-self:flex-start;text-decoration:none;font-weight:600;font-size:13px;padding:12px 16px;border-radius:8px;border:1.5px solid var(--ink);color:var(--ink)}

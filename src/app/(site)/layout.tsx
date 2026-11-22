@@ -24,7 +24,6 @@ function orgJsonLd() {
     telephone: o.phone,
     address: o.mailingAddress,
     areaServed: { "@type": "AdministrativeArea", name: "Ontario, Canada" },
-    founder: { "@type": "Person", name: o.name },
     knowsLanguage: "en",
     priceRange: "200 CAD one time, or from 50 CAD per month",
     openingHours: "Mo-Fr 09:00-17:00",
@@ -60,11 +59,12 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
               <span dangerouslySetInnerHTML={{ __html: markSvg({ width: 30 }) }} />
               In The Answer
             </div>
-            <p>In The Answer is run by {o.name}, {o.businessName.replace(/\.$/, "")}.</p>
+            <p>An Ontario company for websites, systems and AI.</p>
             <p>
-              {o.mailingAddress} · <a href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}>{o.phone}</a> · <a href={`mailto:${o.email}`}>{o.email}</a>
+              {o.businessName} · {o.mailingAddress} · <a href={`tel:${o.phone.replace(/[^+\d]/g, "")}`}>{o.phone}</a> · <a href={`mailto:${o.email}`}>{o.email}</a>
             </p>
             <p>Hours: Monday to Friday, 9:00 am to 5:00 pm (Toronto time). Service in English. Serving clinics across Ontario.</p>
+            <p>The photographs on this site are generated images. They do not show real clinics.</p>
           </div>
           <nav aria-label="Footer" className={styles.footerNav}>
             <ul>

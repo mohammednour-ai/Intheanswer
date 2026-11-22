@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ownerDetails } from "@/lib/env";
 import { COPILOT_NAME } from "@/lib/brand";
@@ -5,8 +6,16 @@ import { sampleTeaser } from "@/lib/reports/sample";
 import type { RowStatus } from "@/lib/reports/types";
 import { SelfServeBox } from "./SelfServeBox";
 import { Offers } from "./Offers";
+import { ResultMark } from "./ResultMark";
+import { Snapshot } from "./Snapshot";
+import { ClosingBand } from "./ClosingBand";
+import { Banner } from "./Banner";
 import site from "./site.module.css";
 import h from "./home.module.css";
+import bannerRoom from "./images/banner-treatment-room.jpg";
+import roomDental from "./images/room-dental.jpg";
+import roomFamily from "./images/room-family.jpg";
+import roomMedspa from "./images/room-medspa.jpg";
 
 const RESULT: Record<RowStatus, { label: string; meaning: string }> = {
   recommended: { label: "Recommended", meaning: "Put forward as an option." },
@@ -14,20 +23,19 @@ const RESULT: Record<RowStatus, { label: string; meaning: string }> = {
   not_named: { label: "Not named", meaning: "The clinic is not in the answer." },
 };
 
-/** The answer mark, drawn for one result: the middle line filled, outlined or dashed. */
-function ResultMark({ status, width = 26 }: { status: RowStatus; width?: number }) {
-  const middle =
-    status === "recommended" ? <rect x="8" y="42" width="104" height="20" rx="10" fill="#1F4FD8" />
-    : status === "listed_only" ? <rect x="11" y="45" width="98" height="14" rx="7" fill="#FFFFFF" stroke="#1F4FD8" strokeWidth="6" />
-    : <rect x="11" y="45" width="98" height="14" rx="7" fill="none" stroke="#9AA4B2" strokeWidth="5" strokeDasharray="9 9" />;
-  return (
-    <svg width={width} height={Math.round((width * 104) / 120)} viewBox="0 0 120 104" aria-hidden="true">
-      <rect x="8" y="8" width="84" height="20" rx="10" fill="#9AA4B2" />
-      {middle}
-      <rect x="8" y="76" width="64" height="20" rx="10" fill="#9AA4B2" />
-    </svg>
-  );
-}
+/** Who the service is for: a room of each kind of clinic, with a question a patient of that clinic might ask. */
+const EXAMPLES = [
+  { kind: "Dental clinics", photo: roomDental, question: "I just moved here. Can you recommend a dentist near me that is accepting new patients?" },
+  { kind: "Walk-in and family clinics", photo: roomFamily, question: "Which walk-in clinics near me are open on Sunday, and do I need to book ahead?" },
+  { kind: "Medspas", photo: roomMedspa, question: "Which medspas near me list their prices for injectables, and who does the treatment?" },
+];
+
+/** What the company does. Each line names work this service already carries out. */
+const SERVICES = [
+  { name: "Websites and systems", text: "We build, renovate and run websites, and the forms and systems behind them." },
+  { name: "AI integration", text: "We connect AI to a business's own website, information and daily work. The assistant that prepares our reports is one we built." },
+  { name: "AI marketing", text: "We get a business named when people ask an AI assistant instead of a search engine: we test, fix what stands in the way, and test again." },
+];
 
 function Arrow({ size = 16 }: { size?: number }) {
   return (
@@ -54,19 +62,24 @@ export default function Home() {
 
   return (
     <>
-      {/* ---------- hero ---------- */}
-      <section className={`${h.hero} ${h.reset}`} aria-labelledby="hero-h">
-        <div className={`${site.container} ${h.heroInner}`}>
-          <div className={h.heroText}>
-            <h1 id="hero-h" className={h.h1}>
-              When patients ask AI, are you <span className={h.blue}>in the answer?</span>
-            </h1>
-            <p className={h.heroLead}>
-              We ask an AI assistant the questions a patient in your city would ask, record which clinics it names, and
-              show you what on your own website may be standing in the way. <strong>The first report is free.</strong>
-            </p>
-          </div>
+      {/* ---------- hero: the picture band ---------- */}
+      <Banner id="hero-h" photo={bannerRoom}>
+        <h1 id="hero-h" className={`${site.h1} ${h.heroTitle}`}>
+          When patients ask AI, are you <span className={`${site.accent} ${h.heroAccent}`}>in the answer?</span>
+        </h1>
+        <p className={site.bannerLead}>
+          We ask an AI assistant the questions a patient in your city would ask, record which clinics it names, and
+          show you what on your own website may be standing in the way. <strong>The first report is free.</strong>
+        </p>
+        <div className={site.actions}>
+          <a href="#get-report" className={site.btnPrimary}>Get your clinic&apos;s free report</a>
+          <Link href="/sample" className={site.link}>See a sample report</Link>
+        </div>
+      </Banner>
 
+      {/* ---------- the form, beside the answer it is about ---------- */}
+      <section className={`${h.start} ${h.reset}`} aria-labelledby="ss-h">
+        <div className={site.container}>
           <div className={h.heroRow}>
             <div id="get-report" className={h.panel}>
               <SelfServeBox />
@@ -79,7 +92,7 @@ export default function Home() {
               </div>
               <div className={h.asks}>
                 <span className={h.who}>A patient asks</span>
-                <p className={h.bubble}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
+                <p className={site.bubble}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
               </div>
               <div className={h.answers}>
                 <span className={h.who}>An AI assistant answers, web search on</span>
@@ -124,7 +137,7 @@ export default function Home() {
               <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>1</span><h3 className={h.stepTitle}>We ask</h3></div>
               <p className={h.stepText}>Five or six questions, worded the way a patient asks, put to an AI assistant with web search on, from your city.</p>
               <div className={h.stepBox}>
-                <p className={h.smallBubble}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
+                <p className={`${site.bubbleSmall} ${h.stepBubble}`}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
                 <p className={h.muted13}>An example question. The assistant is not told about your clinic.</p>
               </div>
             </li>
@@ -257,22 +270,15 @@ export default function Home() {
       </section>
 
       {/* ---------- limits ---------- */}
-      <section className={`${site.bandInk} ${h.limits} ${h.reset}`} aria-labelledby="limits-h">
+      <section className={`${site.band} ${site.bandInk} ${h.reset}`} aria-labelledby="limits-h">
         <div className={`${site.container} ${h.limitsInner}`}>
           <div className={h.limitsTop}>
-            <div className={h.limitsLeft}>
-              <span className={h.eyebrowBlue}>What can it not tell me?</span>
-              <h2 id="limits-h" className={h.bigH2}>No one can guarantee that a clinic will be named, and we do not promise it.</h2>
+            <div className={site.inkMain}>
+              <span className={site.inkLabel}>What can it not tell me?</span>
+              <h2 id="limits-h" className={site.display}>No one can guarantee that a clinic will be named, and we do not promise it.</h2>
             </div>
-            <div className={h.limitsRight}>
-              <ul aria-label="A report is a snapshot" className={h.stats}>
-                <li><span className={h.statNum}>1</span><span className={h.statLabel}>assistant</span></li>
-                <li><span className={h.statNum}>5<span className={h.statOr}>or</span>6</span><span className={h.statLabel}>questions</span></li>
-                <li><span className={h.statNum}>1</span><span className={h.statLabel}>day</span></li>
-              </ul>
-              <p className={h.snapshot}>
-                A report is a snapshot: one assistant, a handful of questions, one day. Assistants change what they say, and results differ between assistants and apps.
-              </p>
+            <div className={site.inkSide}>
+              <Snapshot />
               <ul className={h.ruled}>
                 <li>Five or six questions, not every way a patient might ask.</li>
                 <li>The accessibility scan is automated checks, not a full accessibility audit.</li>
@@ -295,22 +301,24 @@ export default function Home() {
         <div className={`${site.container} ${h.owner}`}>
           <div className={h.ownerLeft}>
             <div className={h.col8}>
-              <span className={site.eyebrow}>Who is writing to me?</span>
-              <h2 id="owner-h" className={site.h2}>One person in Ontario, with a name and an address</h2>
+              <span className={site.eyebrow}>Who is behind it?</span>
+              <h2 id="owner-h" className={site.h2}>An Ontario company for websites, systems and AI</h2>
             </div>
-            <div className={h.nameBlock}>
-              <p className={h.ownerName}>{o.name}</p>
-              <p className={h.ownerBiz}>{o.businessName} · In The Answer</p>
-            </div>
-            <div className={h.note60}>
-              <span className={h.draft}>[DRAFT: owner to approve]</span>
-              <p className={h.quote}>
-                I run In The Answer on my own, from Ontario. If a report from this address reached your clinic, I am the person who sent it, and I answer the questions about it myself.
-              </p>
-              <p className={site.body2}>
-                A report says what one AI assistant said on one day, and what your public website showed. It does not promise that your clinic will be named.
-              </p>
-            </div>
+            <p className={h.about}>
+              In The Answer is an Ontario company. We build websites and the systems behind them, connect AI to the way a
+              business already works, and help a business be found by people who ask an AI assistant.
+            </p>
+            <ul className={h.services}>
+              {SERVICES.map((s) => (
+                <li key={s.name}>
+                  <span className={h.serviceName}>{s.name}</span>
+                  <span className={h.serviceText}>{s.text}</span>
+                </li>
+              ))}
+            </ul>
+            <p className={`${site.body2} ${h.aboutNote}`}>
+              A report says what one AI assistant said on one day, and what your public website showed. It does not promise that your clinic will be named.
+            </p>
           </div>
           <div className={h.ownerRight}>
             <h3 className={h.eyebrowH3}>Particulars</h3>
@@ -334,19 +342,31 @@ export default function Home() {
       <Offers />
 
       {/* ---------- who it is for, and if we emailed you ---------- */}
-      <section className={`${site.band} ${site.bandSoft} ${h.reset}`} aria-label="Who it is for, and if we emailed you">
-        <div className={`${site.container} ${h.forWrap}`}>
-          <div className={h.forLeft}>
-            <h2 className={h.h2Small}>Who it is for</h2>
-            <p className={h.forText}>Independent dental clinics, walk-in and family clinics, and medspas in Ontario that have their own website.</p>
-            <span className={`${site.eyebrow} ${h.eyebrowPad}`}>Example questions</span>
-            <ul className={h.examples}>
-              <li><span className={h.exampleKind}>Dental clinics</span><span className={h.smallBubble}>I just moved here. Can you recommend a dentist near me that is accepting new patients?</span></li>
-              <li><span className={h.exampleKind}>Walk-in and family clinics</span><span className={h.smallBubble}>Which walk-in clinics near me are open on Sunday, and do I need to book ahead?</span></li>
-              <li><span className={h.exampleKind}>Medspas</span><span className={h.smallBubble}>Which medspas near me list their prices for injectables, and who does the treatment?</span></li>
-            </ul>
+      <section className={`${site.band} ${site.bandSoft} ${h.reset}`} aria-labelledby="for-h">
+        <div className={`${site.container} ${site.stack}`}>
+          <div className={`${site.split} ${h.introSplit}`}>
+            <div className={h.col8}>
+              <span className={site.eyebrow}>Who it is for</span>
+              <h2 id="for-h" className={site.h2}>Independent clinics in Ontario</h2>
+            </div>
+            <p className={site.body2}>
+              Dental clinics, walk-in and family clinics, and medspas that have their own website. Under each picture is a question a patient of that kind of clinic might ask.
+            </p>
           </div>
-          <div className={h.forRight}>
+
+          <ul className={h.kinds}>
+            {EXAMPLES.map((e) => (
+              <li key={e.kind} className={h.kind}>
+                <Image className={h.kindPhoto} src={e.photo} alt="" sizes="(max-width: 640px) 92vw, (max-width: 1000px) 46vw, 360px" placeholder="blur" />
+                <div className={h.kindBody}>
+                  <h3 className={h.kindName}>{e.kind}</h3>
+                  <p className={site.bubbleSmall}>{e.question}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+
+          <div className={h.emailed}>
             <h2 className={h.h2Small}>If we emailed you</h2>
             <ul className={h.emailRules}>
               <li>We only write to an address a clinic publishes on its own website, and each email names the page where we found it.</li>
@@ -359,25 +379,14 @@ export default function Home() {
       </section>
 
       {/* ---------- closing call ---------- */}
-      <section className={`${site.band} ${h.reset}`} aria-labelledby="close-h">
-        <div className={`${site.container} ${h.close}`}>
-          <div className={h.closeText}>
-            <h2 id="close-h" className={h.bigH2}>Three lines in an answer. See which one is yours.</h2>
-            <p className={h.closeLead}>
-              Recommended, listed only, or not named: the free report shows the result for each question, the clinics named, and three findings from your website.
-            </p>
-            <div className={h.actions8}>
-              <a href="#get-report" className={site.btnPrimary}>Get your clinic&apos;s free report</a>
-              <Link href="/sample" className={h.plainLink}>See a sample report</Link>
-            </div>
-          </div>
-          <div aria-hidden="true" className={h.closeArt}>
-            <span className={h.w81} />
-            <span className={h.closeBlue}>Your clinic?</span>
-            <span className={h.w64} />
-          </div>
-        </div>
-      </section>
+      <ClosingBand
+        id="close-h"
+        heading="Three lines in an answer. See which one is yours."
+        lead="Recommended, listed only, or not named: the free report shows the result for each question, the clinics named, and three findings from your website."
+      >
+        <a href="#get-report" className={site.btnPrimary}>Get your clinic&apos;s free report</a>
+        <Link href="/sample" className={site.link}>See a sample report</Link>
+      </ClosingBand>
     </>
   );
 }

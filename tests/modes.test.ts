@@ -73,8 +73,8 @@ describe("owner actions", () => {
   it("edit saves the change with before/after and approves", async () => {
     const id = await makeMessage();
     await expect(approval.editAndApprove(id, actor, "New subject", "New body")).rejects.toThrow(/unsubscribe link is missing/);
-    // an edit must keep the sender's name, the mailing address and the unsubscribe link
-    const kept = `New body\n${ownerDetails().name}\n${ownerDetails().mailingAddress}\n--\nhttps://a.test/unsubscribe/t`;
+    // an edit must keep the sender's business name, the mailing address and the unsubscribe link
+    const kept = `New body\n${ownerDetails().businessName}\n${ownerDetails().mailingAddress}\n--\nhttps://a.test/unsubscribe/t`;
     await expect(approval.editAndApprove(id, actor, "We are the best", "x https://a.test/unsubscribe/t")).rejects.toThrow(/superlative/);
     await approval.editAndApprove(id, actor, "New subject", kept);
     const [m] = await db()`select subject, body_text, status::text from messages where id=${id}`;

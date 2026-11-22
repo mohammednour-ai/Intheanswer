@@ -3,7 +3,9 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { clinicApprove, clinicRequestChanges, WorkflowError } from "@/lib/pages/workflow";
 import type { PageDraft } from "@/lib/pages/draft";
-import { markSvg } from "@/lib/brand";
+import { Shell } from "../../../buy/Shell";
+import site from "../../../(site)/site.module.css";
+import s from "../../../buy/buy.module.css";
 
 export const metadata: Metadata = { title: "Review your page", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
@@ -46,56 +48,59 @@ export default async function ApprovePage(props: PageProps<"/approve/page/[token
   const d = p.content;
   const open = p.status === "sent_to_clinic";
   return (
-    <main className="wrap" style={{ maxWidth: 760, paddingTop: 32, paddingBottom: 64 }}>
-      <div className="row" style={{ gap: 10 }}>
-        <span dangerouslySetInnerHTML={{ __html: markSvg({ width: 28 }) }} />
-        <strong style={{ fontFamily: "var(--font-head)" }}>In The Answer</strong>
+    <Shell>
+      <div className={s.intro}>
+        <h1>Review a new page for {p.clinic_name}</h1>
+        <p className={s.for}>This page answers the patient question: &ldquo;{p.target_question}&rdquo;. Please confirm every item in brackets. Nothing is published until you approve.</p>
       </div>
-      <h1 style={{ marginTop: 24 }}>Review a new page for {p.clinic_name}</h1>
-      <p className="muted">This page answers the patient question: &ldquo;{p.target_question}&rdquo;. Please confirm every item in brackets. Nothing is published until you approve.</p>
-      {sp.done === "approved" && <p className="pill pill-ok" role="status">Thank you. Your approval is recorded.</p>}
-      {sp.done === "changes" && <p className="pill pill-warn" role="status">Thank you. Your note has been sent.</p>}
-      {typeof sp.error === "string" && <p className="pill pill-bad" role="alert">{sp.error}</p>}
+      {sp.done === "approved" && <p className={`${s.notice} ${s.noticeOk}`} role="status">Thank you. Your approval is recorded.</p>}
+      {sp.done === "changes" && <p className={`${s.notice} ${s.noticeWarn}`} role="status">Thank you. Your note has been sent.</p>}
+      {typeof sp.error === "string" && <p className={`${s.notice} ${s.noticeBad}`} role="alert">{sp.error}</p>}
 
-      <section className="card" style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: "1.3rem" }}>{d.title}</h2>
-        <p><strong>{d.directAnswer[0]} {d.directAnswer[1]}</strong></p>
+      <section className={s.panel} aria-labelledby="draft-h">
+        <span className={s.label}>The page as drafted</span>
+        <h2 id="draft-h" className={s.h2}>{d.title}</h2>
+        <p className={s.strong}>{d.directAnswer[0]} {d.directAnswer[1]}</p>
         <ul>{d.details.map((x, i) => <li key={i}>{x}</li>)}</ul>
         <p>{d.contact.address}<br />Phone: {d.contact.phone}<br />Hours: {d.contact.hours}</p>
       </section>
-      <section className="card" style={{ marginTop: 16, background: "var(--soft)" }}>
-        <h2 style={{ fontSize: "1.1rem" }}>Before you approve</h2>
+      <section className={`${s.panel} ${s.panelSoft}`} aria-labelledby="before-h">
+        <h2 id="before-h" className={s.h2}>Before you approve</h2>
         <ul>{d.reviewerNotes.map((n, i) => <li key={i}>{n}</li>)}</ul>
       </section>
 
       {open ? (
         <>
-          <form action={approve.bind(null, token)} className="card stack" style={{ marginTop: 16 }}>
-            <h2 style={{ fontSize: "1.1rem" }}>Confirm the facts</h2>
+          <form action={approve.bind(null, token)} className={s.panel} aria-labelledby="confirm-h">
+            <h2 id="confirm-h" className={s.h2}>Confirm the facts</h2>
             {d.placeholders.map((ph) => (
-              <div key={ph}>
+              <div key={ph} className={site.field}>
                 <label htmlFor={ph}>{ph}</label>
                 <input id={ph} name={ph} type="text" maxLength={500} />
               </div>
             ))}
-            <div>
+            <div className={site.field}>
               <label htmlFor="who">Your name and role</label>
               <input id="who" name="who" type="text" required maxLength={120} />
             </div>
-            <button className="btn btn-primary">Approve this page</button>
+            <button className={`${site.btnPrimary} ${site.go}`}>Approve this page</button>
           </form>
-          <form action={changes.bind(null, token)} className="card stack" style={{ marginTop: 16 }}>
-            <h2 style={{ fontSize: "1.1rem" }}>Or ask for changes</h2>
-            <label htmlFor="note">What should change?</label>
-            <textarea id="note" name="note" required maxLength={2000} />
-            <label htmlFor="who2">Your name and role</label>
-            <input id="who2" name="who" type="text" required maxLength={120} />
-            <button className="btn">Send changes</button>
+          <form action={changes.bind(null, token)} className={s.panel} aria-labelledby="changes-h">
+            <h2 id="changes-h" className={s.h2}>Or ask for changes</h2>
+            <div className={site.field}>
+              <label htmlFor="note">What should change?</label>
+              <textarea id="note" name="note" required maxLength={2000} />
+            </div>
+            <div className={site.field}>
+              <label htmlFor="who2">Your name and role</label>
+              <input id="who2" name="who" type="text" required maxLength={120} />
+            </div>
+            <button className={`${site.btnOutline} ${site.go}`}>Send changes</button>
           </form>
         </>
       ) : (
-        <p className="muted" style={{ marginTop: 16 }}>This link is no longer open for approval (status: {p.status.replaceAll("_", " ")}).</p>
+        <p>This link is no longer open for approval (status: {p.status.replaceAll("_", " ")}).</p>
       )}
-    </main>
+    </Shell>
   );
 }

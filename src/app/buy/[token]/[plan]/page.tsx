@@ -146,7 +146,7 @@ export default async function BuyPage(props: PageProps<"/buy/[token]/[plan]">) {
           Back to your report
         </Link>
         <span className={site.eyebrow}>Checkout</span>
-        <h1 className={s.h1}>{PLAN_NAMES[plan]}</h1>
+        <h1 className={site.h1}>{PLAN_NAMES[plan]}</h1>
         <p className={s.for}>For {target.clinicName}</p>
       </div>
       {sp.e === "busy" && <p className={`${s.notice} ${s.noticeWarn}`} role="alert">Too many tries in the last hour. Please try again later.</p>}

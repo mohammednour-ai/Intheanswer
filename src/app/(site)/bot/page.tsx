@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function Bot() {
   return (
-    <div className="wrap">
+    <div className={styles.container}>
       <article className={styles.prose}>
       <h1>About our crawler</h1>
       <p><code>InTheAnswerBot</code> reads the public websites of Ontario clinics to prepare a report for that clinic about its own site.</p>
