@@ -1,0 +1,92 @@
+/* "Talk to Ansa": the button in the bottom corner and the card it opens (TalkToAnsa.tsx). */
+
+/* ---------- the button ---------- */
+.dock {
+  position: fixed; z-index: 20;
+  right: max(var(--space-4), env(safe-area-inset-right));
+  bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  display: inline-flex; align-items: center; gap: var(--space-3);
+  min-height: 60px; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-2);
+  background: var(--blue); color: var(--white);
+  /* a white ring keeps it apart from a photo, the ink band or another blue button */
+  border: 2px solid var(--white); outline: 1px solid var(--blue); border-radius: var(--radius-pill);
+  font-family: var(--font-body); text-align: left; cursor: pointer;
+}
+.dock:hover { background: var(--blue-hover); outline-color: var(--blue-hover); }
+.dock:hover .dockCall { color: var(--blue-hover); }
+.dock:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.dockAvatar { display: inline-flex; flex: none; }
+.dockText { display: flex; flex-direction: column; line-height: 1.2; }
+.dockTitle { font-family: var(--font-head); font-weight: 700; font-size: var(--text-l); letter-spacing: -.1px; }
+.dockSub { font-size: var(--text-xs); color: var(--blue-soft); }
+.dockCall {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 40px; height: 40px; border-radius: 50%; background: var(--white); color: var(--blue);
+}
+
+/* on a phone: avatar, name and handset only (the footer keeps room for it: site.footer) */
+@media (max-width: 640px) {
+  .dockSub { display: none; }
+  .dock { gap: var(--space-2); min-height: 56px; }
+}
+
+/* ---------- the card ---------- */
+.panel {
+  position: fixed; inset: auto max(var(--space-4), env(safe-area-inset-right)) calc(max(var(--space-4), env(safe-area-inset-bottom)) + 76px) auto;
+  margin: 0; padding: 0;
+  width: min(380px, calc(100vw - 2 * var(--space-4)));
+  max-height: calc(100dvh - 120px); overflow: auto;
+  background: var(--white); color: var(--ink);
+  border: 2px solid var(--ink); border-radius: var(--radius-l);
+}
+.panel::backdrop { background: var(--ink); opacity: .35; }
+
+.head {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-5) var(--space-5) var(--space-5) var(--space-5);
+  background: var(--ink); color: var(--white);
+}
+.headText { display: flex; flex-direction: column; gap: var(--space-half); flex: 1; min-width: 0; }
+.name { font-family: var(--font-head); font-weight: 700; font-size: var(--text-h3); line-height: 1.1; }
+.role { font-size: var(--text-s); color: var(--list-grey); }
+.close {
+  flex: none; align-self: flex-start; width: 44px; height: 44px; margin: -10px -10px 0 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--white); border: 0; border-radius: 50%; cursor: pointer;
+}
+.close:hover { color: var(--blue-on-ink); }
+.close:focus-visible { outline: 2px solid var(--blue-on-ink); outline-offset: -2px; }
+
+.body { display: flex; flex-direction: column; gap: var(--space-5); padding: var(--space-5); }
+
+/* the greeting, set under its voice line */
+.greeting {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-3);
+  padding: var(--space-4) var(--space-5); background: var(--soft);
+  border-radius: var(--radius-bubble) var(--radius-bubble) var(--radius-bubble) var(--radius-xs);
+}
+.voice { display: block; }
+.voiceMain { fill: var(--blue); }
+.voiceSide { fill: var(--list-grey); }
+.quote { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--text-l); line-height: 1.35; text-wrap: balance; }
+.caption { font-size: var(--text-caps); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
+
+.asks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.asks li {
+  display: flex; align-items: center; gap: var(--space-3); min-height: 40px;
+  font-size: var(--text-m); color: var(--ink-2); border-top: 1px solid var(--line);
+}
+.asks li:last-child { border-bottom: 1px solid var(--line); }
+.asks li::before { content: ""; flex: none; width: 18px; height: 6px; border-radius: var(--radius-pill); background: var(--blue); }
+
+.call {
+  display: flex; align-items: center; justify-content: center; gap: var(--space-3);
+  min-height: 56px; padding: 0 var(--space-6); border-radius: var(--radius-s);
+  background: var(--blue); color: var(--white); text-decoration: none;
+  font-family: var(--font-head); font-weight: 700; font-size: var(--text-l); letter-spacing: .2px;
+}
+.call:hover { background: var(--blue-hover); }
+.call:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+.fine { margin: 0; font-size: var(--text-xs); color: var(--muted); text-wrap: pretty; }
+.fine a { color: var(--ink); text-underline-offset: 2px; }

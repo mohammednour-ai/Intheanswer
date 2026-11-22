@@ -124,6 +124,8 @@
 
 /* ---------- footer ---------- */
 .footer { border-top: 2px solid var(--ink); padding: var(--fluid-l) 0; }
+/* room under the last line for the "Talk to Ansa" button in the corner (TalkToAnsa.tsx) */
+.footer { padding-bottom: calc(var(--fluid-l) + 72px); }
 .footerGrid { display: flex; flex-wrap: wrap; gap: var(--space-6) var(--gap-cols-l); }
 .footerWho { flex: 3 1 340px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-3); font-size: var(--text-s); color: var(--ink-2); }
 .footerWho p { margin: 0; }

@@ -4,6 +4,7 @@ import { TIERS, cad } from "@/lib/offer";
 import { markSvg } from "@/lib/brand";
 import styles from "./site.module.css";
 import { NavLinks } from "./NavLinks";
+import { TalkToAnsa } from "./TalkToAnsa";
 
 const NAV = [
   { href: "/how-it-works", label: "How it works" },
@@ -80,6 +81,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
           </nav>
         </div>
       </footer>
+      <TalkToAnsa />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd()).replace(/</g, "\\u003c") }} />
     </>
   );
