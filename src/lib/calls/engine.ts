@@ -97,17 +97,22 @@ async function loadCall(where: { token: string } | { id: string } | { sid: strin
   return c ?? null;
 }
 
-async function addTurn(callId: string, role: TranscriptLine["role"], text: string, extra: { action?: string; blockedText?: string | null; flags?: SpokenFlag[] } = {}) {
+/**
+ * `fixed` marks a line the service wrote (the opening, what a lookup found, a closing line, the line
+ * that replaces a stopped one), as opposed to one the model wrote. The after-call review reads only
+ * the model's lines against the brief: the service's own wording is not a claim to be checked.
+ */
+async function addTurn(callId: string, role: TranscriptLine["role"], text: string, extra: { action?: string; blockedText?: string | null; flags?: SpokenFlag[]; fixed?: boolean } = {}) {
   const sql = db();
   await sql`
-    insert into call_turns (call_id, seq, role, text, action, blocked_text, flags)
+    insert into call_turns (call_id, seq, role, text, action, blocked_text, flags, fixed)
     select ${callId}, coalesce(max(seq), 0) + 1, ${role}, ${text.slice(0, 4000)}, ${extra.action ?? null}, ${extra.blockedText ?? null},
-           ${sql.json((extra.flags ?? []) as never)}
+           ${sql.json((extra.flags ?? []) as never)}, ${extra.fixed ?? false}
     from call_turns where call_id=${callId}`;
 }
 
 async function transcript(callId: string): Promise<TranscriptLine[]> {
-  return db()<TranscriptLine[]>`select role, text from call_turns where call_id=${callId} order by seq`;
+  return db()<TranscriptLine[]>`select role, text, fixed from call_turns where call_id=${callId} order by seq`;
 }
 
 async function saveProgress(c: CallRow) {
@@ -225,7 +230,7 @@ export async function onAnswer(token: string): Promise<string> {
   const sql = db();
   await sql`update calls set status='in_progress', started_at=now(), updated_at=now() where id=${c.id} and status='dialing'`;
   const line = outboundGreeting(c, await consentSource(c.consent_id));
-  await addTurn(c.id, "agent", line, { action: "continue" });
+  await addTurn(c.id, "agent", line, { action: "continue", fixed: true });
   return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief), voice: resolveVoice((await getSettings()).call_voice) });
 }
 
@@ -289,7 +294,7 @@ export async function onIncoming(p: { callSid: string; from: string }): Promise<
               signals=${sql.json(signals as never)} where id=${id}`;
   const c = (await loadCall({ id }))!;
   const line = inboundGreeting(brief.clinic?.name ?? null);
-  await addTurn(id, "agent", line, { action: "continue" });
+  await addTurn(id, "agent", line, { action: "continue", fixed: true });
   return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6, voice: resolveVoice(settings.call_voice) });
 }
 
@@ -377,8 +382,9 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
   const owner = c.brief.contact.ownerName;
   const heard = (input.speech ?? "").replace(/\s+/g, " ").trim().slice(0, 1000) || (input.digits ?? "").replace(/\D/g, "").slice(0, 20);
   const spokenIn = resolveVoice(settings.call_voice);
-  const say = async (line: string, action: Action, extra: { blockedText?: string | null; flags?: SpokenFlag[] } = {}) => {
-    await addTurn(c.id, "agent", line, { action, ...extra });
+  // Every line said through here is the service's own fixed text unless it is marked as the model's.
+  const say = async (line: string, action: Action, extra: { blockedText?: string | null; flags?: SpokenFlag[]; fromModel?: boolean } = {}) => {
+    await addTurn(c.id, "agent", line, { action, blockedText: extra.blockedText, flags: extra.flags, fixed: !extra.fromModel });
     await saveProgress(c);
     if (action === "continue") {
       // until the clinic is known, six keyed digits end the wait at once: they are a report code
@@ -485,7 +491,8 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
 
   // Nothing reaches the caller's ear unchecked.
   const checked = checkSpoken(turn.say, c.brief);
-  const extra = checked.ok ? {} : { blockedText: turn.say, flags: checked.flags };
+  // a line that passed is the model's; a stopped one is replaced by a fixed line of ours
+  const extra = checked.ok ? { fromModel: true } : { blockedText: turn.say, flags: checked.flags };
   if (!checked.ok) {
     c.state.blocked = (c.state.blocked ?? 0) + 1;
     c.signals.guard_blocks = c.state.blocked;
@@ -517,7 +524,7 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
   // Two lines stopped in one call: the model is off its brief, so a person takes over.
   if ((c.state.blocked ?? 0) >= 2) {
     await recordHandoff(c, "The phone assistant's wording was stopped twice by the spoken-word check, so it ended the call. Please read the transcript and follow up.");
-    return say(LINES.trouble(owner), "end_call", extra);
+    return say(LINES.trouble(owner), "end_call", { ...extra, fromModel: false });
   }
   return say(checked.text, turn.action === "end_call" && !checked.ok ? "continue" : turn.action, extra);
 }

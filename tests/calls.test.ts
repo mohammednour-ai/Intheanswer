@@ -11,7 +11,7 @@ import { normalizeCanadianPhone, spokenCode, speakablePhone } from "@/lib/calls/
 import { sayAndHangUp, sayAndListen } from "@/lib/calls/twiml";
 import { checkSpoken, hearsOptOut, FALLBACK_LINE } from "@/lib/calls/guard";
 import { allowedAmounts, briefForClinic, briefText, generalBrief, offerLines } from "@/lib/calls/brief";
-import { systemPrompt, type Brain, type AgentTurn } from "@/lib/calls/agent";
+import { reviewTranscript, systemPrompt, type Brain, type AgentTurn, type TranscriptLine } from "@/lib/calls/agent";
 import { isPhoneSuppressed, suppressPhone } from "@/lib/calls/rules";
 import { callOffer, cancelCall, consentWording, ensureCallCode, requestCall, scheduleOwnerCall } from "@/lib/calls/request";
 import { callLinkHtml } from "@/lib/calls/reportLink";
@@ -726,6 +726,41 @@ describe("a clinic phones us", () => {
     const r = await clinicWithReport();
     await db()`update reports set data = jsonb_set(data, '{verified}', 'false') where id=${r.reportId}`;
     expect(await findClinics("Test Dental")).toEqual([]);
+  });
+  it("has the after-call review read the model's lines only, not the service's own fixed lines", async () => {
+    await clinicWithReport();
+    await onIncoming({ callSid: "CAfixed1", from: "+14165550123" });
+    const c = await onlyCall();
+    script = [
+      line("One moment.", "continue", { clinic_search: "Test Dental, Barrie" }),
+      line("Great.", "continue", { clinic_choice: "1" }),
+      line("It was recommended in 1 of the 6 answers."),
+      line("The best clinic in town will be recommended."),
+    ];
+    await onTurn(c.token, { speech: "Test Dental in Barrie." });
+    await onTurn(c.token, { speech: "Yes." });
+    await onTurn(c.token, { speech: "What was the result?" });
+    await onTurn(c.token, { speech: "And next month?" }); // stopped by the wording check: our fixed line is said instead
+    let seen: TranscriptLine[] = [];
+    setReviewer(async (_brief, transcript) => {
+      seen = transcript;
+      return { review: { summary: "Asked about the result.", outcome: "asked_questions", follow_up: null, unsupported: [] }, usage: null, costUsd: 0 };
+    });
+    await reviewCall(c.id);
+    const agentLines = seen.filter((t) => t.role === "agent").map((t) => [t.fixed, t.text.slice(0, 28)]);
+    expect(agentLines).toEqual([
+      [true, "Hi, you've reached the In Th"],
+      [true, "I found Test Dental in Barri"],
+      [true, "Thanks. I have the report fo"],
+      [false, "It was recommended in 1 of t"],
+      [true, FALLBACK_LINE.slice(0, 28)],
+    ]);
+    const shown = reviewTranscript(seen);
+    expect(shown).toContain("Service line: Hi, you've reached the In The Answer Copilot.");
+    expect(shown).toContain("Assistant: It was recommended in 1 of the 6 answers.");
+    expect(shown).toContain("Caller: What was the result?");
+    expect(shown).toContain('Note: Looked up "Test Dental, Barrie"');
+    expect(shown).not.toMatch(/Assistant: (Hi, you've reached|I found|Thanks\. I have the report)/);
   });
   it("speaks in the voice chosen in Settings", async () => {
     await db()`update app_settings set call_voice=${CALL_VOICES[1].id} where id`;
