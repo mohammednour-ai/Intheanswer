@@ -4,6 +4,7 @@
  *
  *   npx tsx --env-file=.env.local scripts/stripe-setup.ts            test mode (an sk_test_ key)
  *   npx tsx --env-file=<file with the live key> scripts/stripe-setup.ts --live
+ *   ... --new-only     leave the one-time report price alone (it already exists and is configured)
  *
  * Safe to run again: each price has a lookup key and the coupon a fixed id, so
  * what exists is found, not duplicated. A price whose amount no longer matches
@@ -16,6 +17,7 @@ import { REPORT_CREDIT, TIERS } from "../src/lib/offer";
 
 const CURRENCY = "cad";
 const live = process.argv.includes("--live");
+const newOnly = process.argv.includes("--new-only");
 
 interface Wanted { env: string; lookup: string; product: string; cents: number; monthly: boolean }
 const PRICES: Wanted[] = [
@@ -38,6 +40,7 @@ async function main() {
   const lines: string[] = [];
   let mismatch = false;
   for (const w of PRICES) {
+    if (newOnly && w.env === "STRIPE_PRICE_ONE_TIME") continue;
     const current = process.env[w.env];
     // a price already configured is checked, not replaced
     let price: Stripe.Price | null = current ? await stripe.prices.retrieve(current).catch(() => null) : null;
