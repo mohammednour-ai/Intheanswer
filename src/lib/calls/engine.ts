@@ -17,6 +17,8 @@ import { checkSpoken, hearsOptOut, type SpokenFlag } from "./guard";
 import { displayPhone, lastTen, normalizeCanadianPhone, spokenCode } from "./phone";
 import { MAX_ATTEMPTS, callsReady, checkCall, stopAllContact, suppressPhone } from "./rules";
 import { hangUp, sayAndHangUp, sayAndListen } from "./twiml";
+import { findClinics } from "./lookup";
+import { resolveVoice } from "./voices";
 
 /**
  * The life of a call.
@@ -36,6 +38,8 @@ interface CallState {
   blocked?: number;       // lines the spoken-word check replaced
   failures?: number;      // model calls that failed or timed out
   codeAttempts?: number;  // inbound: report codes that matched nothing
+  /** Inbound, no code: the clinics found for the name the caller gave (waiting for a yes), and the names that matched nothing. */
+  lookup?: { found: { id: string; name: string; city: string | null }[]; misses: number };
   turns?: number;
   voicemail?: boolean;    // an answering machine picked up
 }
@@ -47,6 +51,8 @@ interface Signals {
   do_not_contact?: boolean;
   wrong_number?: boolean;
   guard_blocks?: number;
+  /** Inbound: how we know which clinic is calling. By name is the caller's word only. */
+  identified_by?: "caller_id" | "code" | "name";
 }
 
 interface CallRow {
@@ -201,7 +207,7 @@ function outboundGreeting(c: CallRow, source: string | null): string {
   const why = source === "web_form"
     ? "Someone at your clinic asked on our website for this call about your AI visibility report."
     : "Your clinic asked us to call about your AI visibility report.";
-  return `Hello${c.contact_name ? ` ${c.contact_name}` : ""}, this is the ${COPILOT_NAME}, an AI assistant calling from In The Answer. ${why} ${TRANSCRIBED} Is now a good time to go through the report for ${clinic}?`;
+  return `Hi${c.contact_name ? ` ${c.contact_name}` : ""}, this is the ${COPILOT_NAME}. I'm an AI assistant. ${why} ${TRANSCRIBED} Is now a good time to go through the report for ${clinic}?`;
 }
 
 function reasonFor(c: CallRow, source: string | null): string {
@@ -220,7 +226,7 @@ export async function onAnswer(token: string): Promise<string> {
   await sql`update calls set status='in_progress', started_at=now(), updated_at=now() where id=${c.id} and status='dialing'`;
   const line = outboundGreeting(c, await consentSource(c.consent_id));
   await addTurn(c.id, "agent", line, { action: "continue" });
-  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief) });
+  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief), voice: resolveVoice((await getSettings()).call_voice) });
 }
 
 function hintsFor(b: CallBrief | null): string[] {
@@ -249,7 +255,15 @@ async function clinicForCaller(from: string): Promise<string | null> {
 
 function unavailableLine(): string {
   const o = ownerDetails();
-  return `Thank you for calling In The Answer. Our phone assistant is not available right now. Please email ${o.email.replace("@", " at ")}, or visit intheanswer dot c a. Goodbye.`;
+  return `Thanks for calling In The Answer. Our phone assistant isn't available right now. Please email ${o.email.replace("@", " at ")}, or visit intheanswer dot c a. Goodbye.`;
+}
+
+/** The first thing a caller to our number hears: that this is an AI, that the call is transcribed, and how to get to their report. */
+export function inboundGreeting(clinicName: string | null): string {
+  const hello = `Hi, you've reached the ${COPILOT_NAME}. I'm an AI assistant, and this call is transcribed so our team can review it.`;
+  return clinicName
+    ? `${hello} I see you're calling from the number for ${clinicName}. Would you like me to walk you through its report?`
+    : `${hello} Are you calling about your clinic's report? If so, tell me the clinic's name and its city, or key in the six digit code from the report.`;
 }
 
 /** The provider's request when someone calls our number. */
@@ -266,18 +280,17 @@ export async function onIncoming(p: { callSid: string; from: string }): Promise<
   const id = made[0].id;
   if (!usable) {
     await sql`update calls set outcome='unavailable', ended_at=now(), summary='Answered with the "not available" message: calls are off or not set up.' where id=${id}`;
-    return sayAndHangUp(unavailableLine());
+    return sayAndHangUp(unavailableLine(), resolveVoice(settings.call_voice));
   }
   const clinicId = await clinicForCaller(p.from);
   const brief = (clinicId ? await briefForClinic(clinicId) : null) ?? (await generalBrief());
-  await sql`update calls set clinic_id=${brief.clinic?.id ?? null}, report_id=${brief.reportId}, brief=${sql.json(brief as never)} where id=${id}`;
+  const signals: Signals = brief.clinic ? { identified_by: "caller_id" } : {};
+  await sql`update calls set clinic_id=${brief.clinic?.id ?? null}, report_id=${brief.reportId}, brief=${sql.json(brief as never)},
+              signals=${sql.json(signals as never)} where id=${id}`;
   const c = (await loadCall({ id }))!;
-  const hello = `Thank you for calling In The Answer. This is the ${COPILOT_NAME}, an AI assistant. ${TRANSCRIBED}`;
-  const line = brief.clinic
-    ? `${hello} I see you are calling from the number for ${brief.clinic.name}. Would you like me to walk you through its report?`
-    : `${hello} If you have a report from us, please say or key in its six digit report code. Otherwise, just tell me how I can help.`;
+  const line = inboundGreeting(brief.clinic?.name ?? null);
   await addTurn(id, "agent", line, { action: "continue" });
-  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6 });
+  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6, voice: resolveVoice(settings.call_voice) });
 }
 
 // ---------------------------------------------------------------------------
@@ -326,19 +339,29 @@ async function emailLinks(c: CallRow): Promise<boolean> {
   return true;
 }
 
-const LINES = {
+const inCity = (m: { name: string; city: string | null }) => `${m.name}${m.city ? ` in ${m.city}` : ""}`;
+
+export const LINES = {
   stillThere: "Are you still there?",
-  silenceBye: "I cannot hear anyone, so I will end the call here. You can reach us any time at intheanswer dot c a. Goodbye.",
+  silenceBye: "I can't hear anyone, so I'll end the call here. You can reach us any time at intheanswer dot c a. Goodbye.",
   repeat: "Sorry, I missed that. Could you say it again?",
-  trouble: (owner: string) => `I am sorry, I am having trouble on my end. ${owner} will follow up with you. Thank you, and goodbye.`,
-  noCalls: "Understood. We will not call this number again. Goodbye.",
-  noContact: "Understood. We will not contact you again, by phone or by email. Goodbye.",
-  timeUp: (owner: string) => `We have reached the end of the time for this call. ${owner} will follow up on anything still open. Thank you, and goodbye.`,
-  codeFound: (clinic: string) => `Thank you. I have the report for ${clinic} in front of me. Would you like the headline result first, or do you have a question about it?`,
-  codeMissing: "I could not find a report with that code. Could you give me the six digits again?",
-  codeGiveUp: "I still cannot find that report. I can tell you how the service works, or have our team follow up. Which would you like?",
-  wrongNumber: "I am sorry to have troubled you. We will not call this number again. Goodbye.",
+  trouble: (owner: string) => `I'm sorry, I'm having trouble on my end. ${owner} will follow up with you. Thanks, and goodbye.`,
+  noCalls: "Understood. We won't call this number again. Goodbye.",
+  noContact: "Understood. We won't contact you again, by phone or by email. Goodbye.",
+  timeUp: (owner: string) => `We've reached the end of the time for this call. ${owner} will follow up on anything still open. Thanks, and goodbye.`,
+  reportReady: (clinic: string) => `Thanks. I have the report for ${clinic} in front of me. Would you like the headline result first, or do you have a question about it?`,
+  codeMissing: "I couldn't find a report with that code. Could you give me the six digits again, or just tell me the clinic's name and city?",
+  codeGiveUp: "I still can't find that report. I can tell you how the service works, or have our team follow up. Which would you like?",
+  clinicOne: (m: { name: string; city: string | null }) => `I found ${inCity(m)}. Is that your clinic?`,
+  clinicSeveral: (found: { name: string; city: string | null }[]) =>
+    `I found ${found.length === 2 ? "two" : "a few"} with a name like that: ${found.slice(0, -1).map(inCity).join(", ")}, and ${inCity(found[found.length - 1])}. Which one is yours?`,
+  clinicMissing: "I couldn't find a report under that name. Could you say the clinic's name once more, and the city it's in? Or key in the six digit code from the report.",
+  clinicGiveUp: (owner: string) => `I'm sorry, I still can't find it. I can tell you how the service works, or have ${owner} follow up with you. Which would you like?`,
+  wrongNumber: "Sorry to have troubled you. We won't call this number again. Goodbye.",
 };
+
+/** How many names may match nothing before the agent stops asking and offers the owner instead. */
+export const MAX_NAME_MISSES = 3;
 
 export interface TurnInput {
   speech?: string | null;
@@ -353,12 +376,29 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
   const turnUrl = voiceUrl("turn", c.token);
   const owner = c.brief.contact.ownerName;
   const heard = (input.speech ?? "").replace(/\s+/g, " ").trim().slice(0, 1000) || (input.digits ?? "").replace(/\D/g, "").slice(0, 20);
+  const spokenIn = resolveVoice(settings.call_voice);
   const say = async (line: string, action: Action, extra: { blockedText?: string | null; flags?: SpokenFlag[] } = {}) => {
     await addTurn(c.id, "agent", line, { action, ...extra });
     await saveProgress(c);
-    if (action === "continue") return sayAndListen(line, turnUrl, { hints: hintsFor(c.brief) });
+    if (action === "continue") {
+      // until the clinic is known, six keyed digits end the wait at once: they are a report code
+      const hints = [...hintsFor(c.brief), ...(c.state.lookup?.found ?? []).flatMap((f) => [f.name, f.city ?? ""])].filter(Boolean);
+      return sayAndListen(line, turnUrl, { hints, digits: c.clinic_id ? undefined : 6, voice: spokenIn });
+    }
     await closeOurEnd(c);
-    return sayAndHangUp(line);
+    return sayAndHangUp(line, spokenIn);
+  };
+  /** Put a clinic's report in front of the agent for the rest of the call. False when it has none that passed the gate. */
+  const attach = async (clinicId: string, reportId: string | null, by: NonNullable<Signals["identified_by"]>): Promise<boolean> => {
+    const brief = await briefForClinic(clinicId, reportId);
+    if (!brief?.clinic) return false;
+    const sql = db();
+    c.clinic_id = clinicId;
+    c.brief = brief;
+    c.signals.identified_by = by;
+    delete c.state.lookup;
+    await sql`update calls set clinic_id=${clinicId}, report_id=${brief.reportId}, brief=${sql.json(brief as never)} where id=${c.id}`;
+    return true;
   };
   c.state.turns = (c.state.turns ?? 0) + 1;
 
@@ -390,14 +430,7 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
       const [rep] = await db()<{ id: string; clinic_id: string }[]>`
         select id, clinic_id from reports where call_code=${code} and clinic_id is not null and not superseded
           and coalesce(data->>'verified', 'true') <> 'false'`;
-      const brief = rep ? await briefForClinic(rep.clinic_id, rep.id) : null;
-      if (rep && brief) {
-        const sql = db();
-        c.clinic_id = rep.clinic_id;
-        c.brief = brief;
-        await sql`update calls set clinic_id=${rep.clinic_id}, report_id=${brief.reportId}, brief=${sql.json(brief as never)} where id=${c.id}`;
-        return say(LINES.codeFound(brief.clinic!.name), "continue");
-      }
+      if (rep && (await attach(rep.clinic_id, rep.id, "code"))) return say(LINES.reportReady(c.brief.clinic!.name), "continue");
       c.state.codeAttempts = (c.state.codeAttempts ?? 0) + 1;
       return say(c.state.codeAttempts >= 3 ? LINES.codeGiveUp : LINES.codeMissing, "continue");
     }
@@ -412,6 +445,7 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     const r = await brain({
       brief: c.brief, direction: c.direction, reason: reasonFor(c, await consentSource(c.consent_id)),
       transcript: await transcript(c.id), heard, minutesElapsed: minutes, minutesLimit: settings.call_max_minutes,
+      found: c.clinic_id ? undefined : c.state.lookup?.found.map((f) => ({ name: f.name, city: f.city })),
     });
     turn = r.turn;
     if (r.costUsd > 0) await recordCost(null, { provider: "anthropic", operation: "call_turn", units: (r.usage ?? {}) as never, costUsd: r.costUsd, clinicId: c.clinic_id });
@@ -430,6 +464,23 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     await addTurn(c.id, "system", "Answering machine or phone menu: the call was ended without leaving a message.");
     await saveProgress(c);
     return hangUp();
+  }
+
+  // A caller with no code names their clinic: the system looks it up and asks them to confirm.
+  // These lines are ours, not the model's, so what the caller hears about a match is always what was found.
+  if (!c.clinic_id && c.direction === "inbound" && turn.action === "continue") {
+    const chosen = turn.clinic_choice ? c.state.lookup?.found[Number(turn.clinic_choice) - 1] : undefined;
+    if (chosen && (await attach(chosen.id, null, "name"))) return say(LINES.reportReady(c.brief.clinic!.name), "continue");
+    const asked = (turn.clinic_search ?? "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (asked) {
+      const found = (await findClinics(asked)).map((m) => ({ id: m.id, name: m.name, city: m.city }));
+      const misses = (c.state.lookup?.misses ?? 0) + (found.length ? 0 : 1);
+      c.state.lookup = { found, misses };
+      await addTurn(c.id, "system", `Looked up "${asked}": ${found.length ? found.map(inCity).join("; ") : "nothing close"}.`);
+      if (found.length === 1) return say(LINES.clinicOne(found[0]), "continue");
+      if (found.length > 1) return say(LINES.clinicSeveral(found), "continue");
+      return say(misses >= MAX_NAME_MISSES ? LINES.clinicGiveUp(owner) : LINES.clinicMissing, "continue");
+    }
   }
 
   // Nothing reaches the caller's ear unchecked.

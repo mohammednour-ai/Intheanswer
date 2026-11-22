@@ -21,6 +21,7 @@ import { setCallsEnabledAction, saveCallSettingsAction } from "../calls/actions"
 import { callsReady } from "@/lib/calls/rules";
 import { callingHours } from "@/lib/calls/request";
 import { displayPhone } from "@/lib/calls/phone";
+import { CALL_VOICES, resolveVoice } from "@/lib/calls/voices";
 import { env } from "@/lib/env";
 
 export default async function SettingsPage(props: PageProps<"/portal/settings">) {
@@ -239,7 +240,17 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
               <label htmlFor="creq">Call requests per report per day</label>
               <input id="creq" name="call_requests_per_report_per_day" type="number" min={1} max={10} defaultValue={s.call_requests_per_report_per_day} />
             </div>
+            <div>
+              <label htmlFor="cvoice">Voice</label>
+              <select id="cvoice" name="call_voice" defaultValue={resolveVoice(s.call_voice)}>
+                {CALL_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </select>
+            </div>
           </div>
+          <p className="small muted">
+            The voice changes on the next call. Whichever you choose, the assistant says at the start of every call that it is an AI
+            assistant. To hear one, save it and phone our number.
+          </p>
           <button className="btn">Save call settings</button>
         </form>
       </section>

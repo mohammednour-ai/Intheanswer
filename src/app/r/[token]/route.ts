@@ -5,7 +5,7 @@ import { sha256 } from "@/lib/tokens";
 import { LIVE_REVIEWS_MARKER, renderLiveReviewTable } from "@/lib/reviews/liveTable";
 
 import { isAutomatedFetch } from "@/lib/site/viewers";
-import { callsOffered } from "@/lib/calls/request";
+import { callOffer } from "@/lib/calls/request";
 import { callLinkHtml } from "@/lib/calls/reportLink";
 
 /**
@@ -66,8 +66,9 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   // The offer to have the report explained by phone: added when the page is served (never to the
   // stored report or its PDF), and only while calls are on and the clinic may be contacted.
   if (r.clinic_id && r.data?.verified !== false && ["teaser", "monthly", "retest", "full"].includes(r.kind)
-      && r.clinic_status !== "do_not_contact" && r.clinic_status !== "suppressed" && (await callsOffered().catch(() => false))) {
-    html = html.replace(/<footer\b/, `${callLinkHtml(token)}<footer`);
+      && r.clinic_status !== "do_not_contact" && r.clinic_status !== "suppressed") {
+    const offer = await callOffer(r.id).catch(() => null);
+    if (offer) html = html.replace(/<footer\b/, `${callLinkHtml(token, offer)}<footer`);
   }
   return new Response(html, {
     headers: {

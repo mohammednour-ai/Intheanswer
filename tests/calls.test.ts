@@ -13,7 +13,10 @@ import { checkSpoken, hearsOptOut, FALLBACK_LINE } from "@/lib/calls/guard";
 import { allowedAmounts, briefForClinic, briefText, generalBrief, offerLines } from "@/lib/calls/brief";
 import { systemPrompt, type Brain, type AgentTurn } from "@/lib/calls/agent";
 import { isPhoneSuppressed, suppressPhone } from "@/lib/calls/rules";
-import { cancelCall, consentWording, ensureCallCode, requestCall, scheduleOwnerCall } from "@/lib/calls/request";
+import { callOffer, cancelCall, consentWording, ensureCallCode, requestCall, scheduleOwnerCall } from "@/lib/calls/request";
+import { callLinkHtml } from "@/lib/calls/reportLink";
+import { findClinics, rankClinics, wordLikeness } from "@/lib/calls/lookup";
+import { CALL_VOICES, DEFAULT_CALL_VOICE, resolveVoice } from "@/lib/calls/voices";
 import { callHousekeeping, onAmd, onAnswer, onIncoming, onStatus, onTurn, placeCall, reviewCall, setBrain, setReviewer } from "@/lib/calls/engine";
 import { makeClinic, resetData } from "./helpers";
 
@@ -43,8 +46,8 @@ const scriptedBrain: Brain = async (i) => {
   if (next instanceof Error) throw next;
   return { turn: next, usage: null, costUsd: 0.001, model: "test" };
 };
-function line(say: string, action: AgentTurn["action"] = "continue", more: { handoff_note?: string; email_links?: boolean } = {}): AgentTurn {
-  return { say, action, email_links: more.email_links ?? false, handoff_note: more.handoff_note ?? null };
+function line(say: string, action: AgentTurn["action"] = "continue", more: { handoff_note?: string; email_links?: boolean; clinic_search?: string; clinic_choice?: "1" | "2" | "3" } = {}): AgentTurn {
+  return { say, action, email_links: more.email_links ?? false, handoff_note: more.handoff_note ?? null, clinic_search: more.clinic_search ?? null, clinic_choice: more.clinic_choice ?? null };
 }
 
 async function setEnv(vars: Record<string, string>) {
@@ -127,6 +130,46 @@ describe("phone numbers", () => {
   });
 });
 
+describe("finding a clinic by its spoken name", () => {
+  const clinics = [
+    { id: "a", name: "Bathurst Bloor Walk in Clinic", city: "Toronto" },
+    { id: "b", name: "Bathurst Dental Centre", city: "Toronto" },
+    { id: "c", name: "Lakeside Family Dental", city: "Barrie" },
+    { id: "d", name: "Lakeside Family Dental", city: "Orillia" },
+    { id: "e", name: "Clinique De Mode", city: "Toronto" },
+    { id: "f", name: "Smile Dental Clinic", aliases: ["Dr. Patel Dentistry"], city: "Milton" },
+  ];
+  const ids = (said: string) => rankClinics(said, clinics).map((m) => m.id);
+
+  it("finds the clinic from its name, whole or shortened, with or without the city", () => {
+    expect(ids("Bathurst Bloor Walk in Clinic")).toEqual(["a"]);
+    expect(ids("the Bathurst Bloor walk-in clinic in Toronto")).toEqual(["a"]);
+    expect(ids("Bathurst Bloor")).toEqual(["a"]);
+    expect(ids("Clinique de Mode")).toEqual(["e"]);
+    expect(ids("Doctor Patel Dentistry, Milton")).toEqual(["f"]);
+  });
+  it("forgives what speech recognition does to a name", () => {
+    expect(wordLikeness("bloor", "blur")).toBeGreaterThan(0.7);
+    expect(wordLikeness("walking", "walk")).toBeGreaterThan(0.8);
+    expect(wordLikeness("lakeside", "lakesides")).toBeGreaterThan(0.8);
+    expect(wordLikeness("dental", "rental")).toBeLessThan(0.9);
+    expect(wordLikeness("bloor", "smile")).toBe(0);
+    expect(ids("Bathurst Blur walking clinic")).toEqual(["a"]);
+    expect(ids("Lake Side Family Dental Barry")[0]).toBe("c");
+  });
+  it("uses the city to tell two clinics of the same name apart, and offers both without it", () => {
+    expect(ids("Lakeside Family Dental in Orillia")).toEqual(["d"]);
+    expect(ids("Lakeside Family Dental").sort()).toEqual(["c", "d"]);
+  });
+  it("finds nothing for a name that is only words every clinic uses, or for another clinic", () => {
+    expect(ids("the dental clinic")).toEqual([]);
+    expect(ids("medical centre")).toEqual([]);
+    expect(ids("Maple Grove Physiotherapy")).toEqual([]);
+    expect(ids("")).toEqual([]);
+    expect(rankClinics("Bathurst Bloor", [])).toEqual([]);
+  });
+});
+
 describe("provider requests", () => {
   it("computes the provider's signature (the example from Twilio's documentation)", () => {
     const params = { CallSid: "CA1234567890ABCDE", Caller: "+12349013030", Digits: "1234", From: "+12349013030", To: "+18005551212" };
@@ -150,6 +193,17 @@ describe("provider requests", () => {
     expect(xml).toContain('action="https://x.test/turn?a=1&amp;b=2"');
     expect(xml).toContain('input="speech dtmf"');
     expect(sayAndHangUp("Goodbye.")).toMatch(/<Say[^>]*>Goodbye\.<\/Say><Hangup\/>/);
+  });
+  it("speaks in the voice it is given, and in the environment's voice without one", () => {
+    expect(sayAndListen("Hello.", "https://x.test/turn", { voice: "ElevenLabs.abc123" })).toContain('<Say voice="ElevenLabs.abc123" language="en-US">');
+    expect(sayAndHangUp("Goodbye.", "Google.en-US-Chirp3-HD-Aoede")).toContain('voice="Google.en-US-Chirp3-HD-Aoede"');
+    expect(sayAndHangUp("Goodbye.")).toContain('voice="Polly.Danielle-Generative"');
+  });
+  it("only uses a voice that is on the list", () => {
+    expect(resolveVoice(CALL_VOICES[2].id)).toBe(CALL_VOICES[2].id);
+    expect(resolveVoice(null)).toBe(DEFAULT_CALL_VOICE);
+    expect(resolveVoice('x" onerror="')).toBe(DEFAULT_CALL_VOICE);
+    expect(new Set(CALL_VOICES.map((v) => v.id)).size).toBe(CALL_VOICES.length);
   });
 });
 
@@ -304,6 +358,20 @@ describe("asking for a call", () => {
     expect(code).toMatch(/^\d{6}$/);
     expect(await ensureCallCode(r.reportId)).toBe(code);
   });
+  it("shows our number and the report's code on the report page, only while calls are on", async () => {
+    const r = await clinicWithReport();
+    expect(await callOffer(r.reportId)).toBeNull();
+    await goLive();
+    const offer = await callOffer(r.reportId);
+    const code = await ensureCallCode(r.reportId);
+    expect(offer?.phone).toEqual({ e164: "+17055550199", display: "705-555-0199", code });
+    const html = callLinkHtml(r.token, offer!);
+    expect(html).toContain(`href="/call/${r.token}"`);
+    expect(html).toContain('href="tel:+17055550199"');
+    expect(html).toContain(`${code.slice(0, 3)} ${code.slice(3)}`);
+    expect(html).toContain("an AI assistant");
+    expect(callLinkHtml(r.token)).not.toContain("tel:");
+  });
 });
 
 describe("placing a call", () => {
@@ -386,7 +454,7 @@ describe("the conversation", () => {
     const c = await answeredCall();
     const [first] = await turns(c.id);
     expect(first.role).toBe("agent");
-    expect(first.text).toMatch(/an AI assistant calling from In The Answer/);
+    expect(first.text).toMatch(/this is the In The Answer Copilot\. I'm an AI assistant\./);
     expect(first.text).toMatch(/asked on our website for this call/);
     expect(first.text).toMatch(/transcribed/);
     expect((await call(c.id)).status).toBe("in_progress");
@@ -419,7 +487,7 @@ describe("the conversation", () => {
   it("stops at once when asked not to call, without consulting the model", async () => {
     const c = await answeredCall();
     const xml = await onTurn(c.token, { speech: "Please stop calling us." });
-    expect(xml).toContain("We will not call this number again");
+    expect(xml).toContain("We won&apos;t call this number again");
     expect(xml).toContain("<Hangup/>");
     expect(asked).toHaveLength(0);
     expect((await isPhoneSuppressed(PHONE)).suppressed).toBe(true);
@@ -573,17 +641,100 @@ describe("a clinic phones us", () => {
     const code = await ensureCallCode(r.reportId);
     const hello = await onIncoming({ callSid: "CAin1", from: "+14165550123" });
     expect(hello).toMatch(/an AI assistant/);
-    expect(hello).toMatch(/six digit report code/);
+    expect(hello).toMatch(/tell me the clinic&apos;s name and its city, or key in the six digit code/);
+    expect(hello).toContain(`voice="${DEFAULT_CALL_VOICE}"`);
+    expect(hello).toContain('numDigits="6"');
     const c = await onlyCall();
     expect((await call(c.id)).clinic_id).toBeNull();
-    expect(await onTurn(c.token, { digits: "000000" })).toContain("could not find a report with that code");
+    const missed = await onTurn(c.token, { digits: "000000" });
+    expect(missed).toContain("couldn&apos;t find a report with that code");
+    expect(missed).toContain('numDigits="6"');
     const found = await onTurn(c.token, { speech: code.split("").join(" ") });
     expect(found).toContain("I have the report for Test Dental in front of me");
     expect((await call(c.id)).clinic_id).toBe(r.clinicId);
+    expect((await call(c.id)).signals.identified_by).toBe("code");
     script = [line("It was recommended in 1 of 6 answers.")];
-    await onTurn(c.token, { speech: "The headline please." });
+    const next = await onTurn(c.token, { speech: "The headline please." });
+    expect(next).not.toContain("numDigits");
     expect(asked[0].direction).toBe("inbound");
     expect(asked[0].brief.clinic?.name).toBe("Test Dental");
+  });
+  it("finds the report from the clinic's name when the caller has no code, and asks before using it", async () => {
+    const r = await clinicWithReport();
+    await onIncoming({ callSid: "CAname1", from: "+14165550123" });
+    const c = await onlyCall();
+    // the model only passes on the name it heard; the system looks it up and words the answer
+    script = [line("One moment.", "continue", { clinic_search: "Test Dental, Barrie" })];
+    const asks = await onTurn(c.token, { speech: "I don't have a code. It's Test Dental in Barrie." });
+    expect(asked[0].brief.kind).toBe("general");
+    expect(systemPrompt(asked[0].brief, "inbound", "x")).toContain("Finding the caller's report");
+    expect(asks).toContain("I found Test Dental in Barrie. Is that your clinic?");
+    expect(asks).not.toContain("One moment");
+    expect((await call(c.id)).clinic_id).toBeNull();
+    // the caller confirms: only then is the report attached
+    script = [line("Great.", "continue", { clinic_choice: "1" })];
+    const ready = await onTurn(c.token, { speech: "Yes, that's us." });
+    expect(asked[1].found).toEqual([{ name: "Test Dental", city: "Barrie" }]);
+    expect(ready).toContain("I have the report for Test Dental in front of me");
+    const after = await call(c.id);
+    expect(after.clinic_id).toBe(r.clinicId);
+    expect(after.signals.identified_by).toBe("name");
+    script = [line("It was recommended in 1 of 6 answers.")];
+    await onTurn(c.token, { speech: "What was the result?" });
+    expect(asked[2].brief.clinic?.name).toBe("Test Dental");
+    expect(asked[2].found).toBeUndefined();
+    expect(systemPrompt(asked[2].brief, "inbound", "x")).not.toContain("Finding the caller's report");
+    expect((await turns(c.id)).filter((t) => t.role === "system").map((t) => t.text)).toEqual(['Looked up "Test Dental, Barrie": Test Dental in Barrie.']);
+  });
+  it("does not attach a report the caller has not confirmed", async () => {
+    await clinicWithReport();
+    await onIncoming({ callSid: "CAname2", from: "+14165550123" });
+    const c = await onlyCall();
+    script = [line("One moment.", "continue", { clinic_search: "Test Dental" }), line("Sorry about that. What's the clinic's name?")];
+    await onTurn(c.token, { speech: "Test Dental." });
+    const xml = await onTurn(c.token, { speech: "No, that's not us." });
+    expect(xml).toContain("What&apos;s the clinic&apos;s name?");
+    expect((await call(c.id)).clinic_id).toBeNull();
+    // a choice the system never offered is ignored
+    script = [line("Is there anything else?", "continue", { clinic_choice: "3" })];
+    await onTurn(c.token, { speech: "The third one." });
+    expect((await call(c.id)).clinic_id).toBeNull();
+  });
+  it("reads out the clinics when the name fits more than one, and takes the one the caller picks", async () => {
+    const [toronto] = await db()<{ id: number }[]>`insert into cities (name, province) values ('Toronto', 'ON') on conflict (name, province) do update set name=excluded.name returning id`;
+    await clinicWithReport({ name: "Lakeside Dental" });
+    const second = await clinicWithReport({ name: "Lakeside Dental", city_id: toronto.id, website: "https://lakesidetoronto.example", domain: "lakesidetoronto.example" });
+    await onIncoming({ callSid: "CAname3", from: "+14165550123" });
+    const c = await onlyCall();
+    script = [line("One moment.", "continue", { clinic_search: "Lakeside Dental" }), line("Thanks.", "continue", { clinic_choice: "2" })];
+    const which = await onTurn(c.token, { speech: "Lakeside Dental." });
+    expect(which).toMatch(/I found two with a name like that: Lakeside Dental in Barrie, and Lakeside Dental in Toronto\. Which one is yours\?/);
+    await onTurn(c.token, { speech: "The one in Toronto." });
+    expect((await call(c.id)).clinic_id).toBe(second.clinicId);
+  });
+  it("says so when no clinic fits the name, and offers the owner after three tries", async () => {
+    await clinicWithReport();
+    await onIncoming({ callSid: "CAname4", from: "+14165550123" });
+    const c = await onlyCall();
+    script = [1, 2, 3].map(() => line("One moment.", "continue", { clinic_search: "Maple Grove Physiotherapy" }));
+    expect(await onTurn(c.token, { speech: "Maple Grove Physiotherapy." })).toContain("couldn&apos;t find a report under that name");
+    expect(await onTurn(c.token, { speech: "Maple Grove Physiotherapy in Orillia." })).toContain("couldn&apos;t find a report under that name");
+    expect(await onTurn(c.token, { speech: "Maple Grove." })).toContain("Sam Owner follow up with you");
+    expect((await call(c.id)).clinic_id).toBeNull();
+  });
+  it("does not offer a clinic whose report has not passed the gate", async () => {
+    const r = await clinicWithReport();
+    await db()`update reports set data = jsonb_set(data, '{verified}', 'false') where id=${r.reportId}`;
+    expect(await findClinics("Test Dental")).toEqual([]);
+  });
+  it("speaks in the voice chosen in Settings", async () => {
+    await db()`update app_settings set call_voice=${CALL_VOICES[1].id} where id`;
+    const hello = await onIncoming({ callSid: "CAvoice1", from: "+14165550123" });
+    expect(hello).toContain(`voice="${CALL_VOICES[1].id}"`);
+    const c = await onlyCall();
+    script = [line("Sure. We test whether AI assistants name a clinic.")];
+    expect(await onTurn(c.token, { speech: "What do you do?" })).toContain(`voice="${CALL_VOICES[1].id}"`);
+    expect(await onTurn(c.token, { speech: "Please stop calling us." })).toContain(`voice="${CALL_VOICES[1].id}"`);
   });
   it("recognises the number of a clinic that asked for a call before", async () => {
     const r = await clinicWithReport();
@@ -602,7 +753,7 @@ describe("a clinic phones us", () => {
   it("plays the 'not available' message while calls are off, and is closed by the status report", async () => {
     await db()`update app_settings set calls_enabled=false where id`;
     const xml = await onIncoming({ callSid: "CAin4", from: PHONE });
-    expect(xml).toContain("not available right now");
+    expect(xml).toContain("isn&apos;t available right now");
     expect(xml).toContain("<Hangup/>");
     expect(asked).toHaveLength(0);
     expect(await onIncoming({ callSid: "CAin4", from: PHONE })).toContain("<Hangup/>");

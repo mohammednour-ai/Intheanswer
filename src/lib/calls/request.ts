@@ -86,6 +86,20 @@ export async function callsOffered(): Promise<boolean> {
   return s.calls_enabled && !s.kill_switch;
 }
 
+export interface CallOffer {
+  /** Our number for a clinic that would rather phone us ("+1647..."), and its report code. Null when telephony is not set up. */
+  phone: { e164: string; display: string; code: string } | null;
+}
+
+/** What a report page shows about calls: null while they are not offered. Gives the report its code if it has none yet. */
+export async function callOffer(reportId: string): Promise<CallOffer | null> {
+  if (!(await callsOffered())) return null;
+  const ours = env().TWILIO_PHONE_NUMBER;
+  if (!ours) return { phone: null };
+  const code = await ensureCallCode(reportId).catch(() => null);
+  return { phone: code ? { e164: ours, display: displayPhone(ours), code } : null };
+}
+
 export async function loadCallPage(token: string): Promise<CallPage | null> {
   const r = await reportByToken(token);
   if (!r) return null;

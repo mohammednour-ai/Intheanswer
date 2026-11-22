@@ -19,9 +19,10 @@ export function forSpeech(s: string): string {
     .trim();
 }
 
-function say(text: string): string {
+/** `voice` is the one chosen in Settings; without it, the environment's (the safe one for error lines). */
+function say(text: string, voice?: string): string {
   const e = env();
-  return `<Say voice="${xmlEscape(e.VOICE_TTS_VOICE)}" language="${xmlEscape(e.VOICE_LANGUAGE)}">${xmlEscape(forSpeech(text))}</Say>`;
+  return `<Say voice="${xmlEscape(voice || e.VOICE_TTS_VOICE)}" language="${xmlEscape(e.VOICE_LANGUAGE)}">${xmlEscape(forSpeech(text))}</Say>`;
 }
 
 const doc = (inner: string) => `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`;
@@ -31,7 +32,7 @@ const doc = (inner: string) => `<?xml version="1.0" encoding="UTF-8"?><Response>
  * speak over it. With nothing heard the action is still called (empty), which
  * is how a silence is noticed.
  */
-export function sayAndListen(text: string, actionUrl: string, opts: { hints?: string[]; digits?: number } = {}): string {
+export function sayAndListen(text: string, actionUrl: string, opts: { hints?: string[]; digits?: number; voice?: string } = {}): string {
   const e = env();
   const hints = (opts.hints ?? []).map((h) => h.replace(/[,"<>&]/g, " ").trim()).filter(Boolean).slice(0, 40).join(", ");
   const attrs = [
@@ -45,11 +46,11 @@ export function sayAndListen(text: string, actionUrl: string, opts: { hints?: st
     opts.digits ? `numDigits="${opts.digits}"` : "",
     hints ? `hints="${xmlEscape(hints)}"` : "",
   ].filter(Boolean).join(" ");
-  return doc(`<Gather ${attrs}>${say(text)}</Gather>`);
+  return doc(`<Gather ${attrs}>${say(text, opts.voice)}</Gather>`);
 }
 
-export function sayAndHangUp(text: string): string {
-  return doc(`${say(text)}<Hangup/>`);
+export function sayAndHangUp(text: string, voice?: string): string {
+  return doc(`${say(text, voice)}<Hangup/>`);
 }
 
 export function hangUp(): string {

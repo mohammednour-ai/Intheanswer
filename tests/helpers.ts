@@ -12,7 +12,7 @@ export async function resetData() {
             auto_pause_cleared_at=null, dry_run=true, live_enabled=false, warmup_start_date=null, daily_cap_override=null,
             send_window_start='09:30', send_window_end='16:30', claude_daily_spend_cap_usd=25,
             pipeline_paused_for_spend=false, dns_verified=false,
-            calls_enabled=false, calls_daily_cap=20, call_max_minutes=10, call_requests_per_report_per_day=2 where id`;
+            calls_enabled=false, calls_daily_cap=20, call_max_minutes=10, call_requests_per_report_per_day=2, call_voice=null where id`;
   await sql`update message_type_modes set mode='REVIEW', review_first_n=10, auto_since=null, auto_created_count=0`;
 }
 

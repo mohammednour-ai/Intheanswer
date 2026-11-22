@@ -184,7 +184,8 @@ covers every paid API (Claude and Places), not only Claude.
 
 In The Answer Copilot can explain a clinic's report by phone and answer questions about the paid options
 (`src/lib/calls`). It is off until Twilio is configured and the owner turns it on (Portal > Settings >
-Phone calls), and it has not yet been run against real Twilio: only through fakes and the simulator.
+Phone calls). The line and the voices have been tried on real Twilio calls; a full conversation with a
+person on a real line is the owner's to test.
 
 - **Consent only, no cold calls.** The voice is synthesized. The CRTC's Unsolicited Telecommunications
   Rules allow a solicitation call that conveys a synthesized voice only with the express consent of the
@@ -198,7 +199,11 @@ Phone calls), and it has not yet been run against real Twilio: only through fake
   Do not add a cold-calling mode without legal advice.
 - **Calls to our number** are answered by the same agent (`POST /api/voice/incoming`). A caller is
   matched by a number that asked for a call before, by the number the clinic publishes on its own site,
-  or by the six-digit report code shown on the `/call` page; otherwise it can only explain the service.
+  by the six-digit report code (shown with our number on the report page and on `/call`), or by the
+  clinic's name: the caller says it, `lookup.ts` matches it loosely against clinics that have a
+  verified report (speech recognition garbles names), and the agent asks "is that your clinic?" before
+  the report is used. The lookup and those lines are the engine's, not the model's. A match by name is
+  the caller's word only, and Portal > Calls says so. Otherwise the agent can only explain the service.
 - **What it may say.** Each call gets a brief built from stored data only (`brief.ts`): the report as
   saved after the verification gate, the published prices, the owner's approved answers. The model
   (`agent.ts`) is told to state nothing else and to say it is an AI. Every line then passes the
@@ -218,15 +223,20 @@ Phone calls), and it has not yet been run against real Twilio: only through fake
 - **Dry run.** No call is placed (recorded as a dry-run call, like email). Calls *to* our number are
   still answered once calls are on, so the owner can test by phoning it.
 - **Try it without a phone:** `npm run call:sim` (sample report), `npm run call:sim -- <report token>`,
-  or `-- --general`. Same brief, model call and wording check; nothing is stored or sent.
+  or `-- --general` (a call to our number: name a clinic from the database to reach its report). Same
+  brief, model call and wording check; nothing is stored or sent.
 - **How a call runs.** Twilio speaks each line (`<Say>` inside `<Gather input="speech dtmf">`) and posts
   what it heard to `/api/voice/turn/<call token>`; one model call per turn, cut off at 10 seconds. This
   works on serverless (no WebSocket) at the cost of a pause before each reply. The live conversation
   runs on `claude-haiku-5-5` (`VOICE_MODEL` changes it) to keep that pause short; the after-call check
   runs on `CLAUDE_MODEL`. Every webhook checks the Twilio signature against `APP_URL`.
-- **Voice.** `VOICE_TTS_VOICE`, default `Polly.Danielle-Generative` (female, US English). Twilio has no
-  Canadian English voice, and Canadian English is not in its listed speech-recognition languages, so
-  both stay `en-US`.
+- **Voice.** Chosen in Portal > Settings > Phone calls from the list in `voices.ts` (stored in
+  `app_settings.call_voice`); the default is an ElevenLabs voice, which sounds closest to a person.
+  ElevenLabs voices in `<Say>` are a Twilio public beta: if one stops working, pick a Google or Amazon
+  voice from the same list. Every listed voice was tried on a real call. Twilio has no Canadian English
+  voice, and Canadian English is not in its listed speech-recognition languages, so both stay `en-US`.
+  The voice never changes what is said: the opening line says it is an AI assistant, whatever the
+  voice. `VOICE_TTS_VOICE` is only used for a line spoken when the settings cannot be read.
 
 ## Payments and delivery (phase 5)
 

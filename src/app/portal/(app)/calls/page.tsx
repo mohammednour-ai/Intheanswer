@@ -78,7 +78,7 @@ export default async function CallsPage(props: PageProps<"/portal/calls">) {
           {calls.map((c) => {
             const st = STATUS[c.status] ?? { t: c.status, cls: "" };
             const lines = turns.get(c.id) ?? [];
-            const sig = c.signals as { handoff?: string[]; email_links?: string; do_not_call?: boolean; do_not_contact?: boolean; guard_blocks?: number };
+            const sig = c.signals as { handoff?: string[]; email_links?: string; do_not_call?: boolean; do_not_contact?: boolean; guard_blocks?: number; identified_by?: string };
             return (
               <li key={c.id} id={`call-${c.id}`} className="card stack">
                 <div className="row" style={{ justifyContent: "space-between" }}>
@@ -100,8 +100,9 @@ export default async function CallsPage(props: PageProps<"/portal/calls">) {
                 <div className="small">{consentLine(c)}</div>
                 {c.summary ? <p style={{ margin: 0 }}>{c.summary}</p> : null}
                 {c.last_error && c.status !== "completed" ? <p className="small muted" style={{ margin: 0 }}>{c.last_error}</p> : null}
-                {(sig.handoff?.length || sig.email_links || sig.do_not_call || sig.do_not_contact) ? (
+                {(sig.handoff?.length || sig.email_links || sig.do_not_call || sig.do_not_contact || sig.identified_by === "name") ? (
                   <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+                    {sig.identified_by === "name" ? <li>The caller gave this clinic&apos;s name and confirmed it. That is their word only: no report code, and not a number we know.</li> : null}
                     {(sig.handoff ?? []).map((h, i) => <li key={i}><strong>Needs you:</strong> {h}</li>)}
                     {sig.email_links === "queued" ? <li>Asked for the links by email: a draft is in the <Link href="/portal">queue</Link>.</li> : null}
                     {sig.email_links === "no_address" ? <li>Asked for the links by email, but no address is on file.</li> : null}

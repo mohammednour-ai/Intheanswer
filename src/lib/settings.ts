@@ -36,6 +36,8 @@ export interface AppSettings {
   calls_daily_cap: number;
   call_max_minutes: number;
   call_requests_per_report_per_day: number;
+  /** The voice chosen for the phone agent (a <Say> voice id from calls/voices.ts); null is the default. */
+  call_voice: string | null;
 }
 
 export async function getSettings(): Promise<AppSettings> {

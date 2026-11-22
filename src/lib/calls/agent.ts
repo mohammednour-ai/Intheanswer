@@ -20,10 +20,12 @@ export const ACTIONS = ["continue", "end_call", "do_not_call", "do_not_contact",
 export type Action = (typeof ACTIONS)[number];
 
 export const TurnSchema = z.object({
-  say: z.string().describe("Your next spoken line: one to three short sentences of plain spoken English."),
+  say: z.string().describe("Your next spoken line: one or two short sentences, three at most, the way a person talks on the phone."),
   action: z.enum(ACTIONS).describe("What happens to the call after this line."),
   email_links: z.boolean().describe("True on the turn where you tell them the report and the links will be emailed. Otherwise false."),
   handoff_note: z.string().nullable().describe("When the owner must follow up: what the person needs, in one sentence, for the owner. Otherwise null."),
+  clinic_search: z.string().nullable().describe("Only while no clinic is identified on this call: the clinic name the caller just gave, with its city if they said one, as you heard it. Otherwise null."),
+  clinic_choice: z.enum(["1", "2", "3"]).nullable().describe("Only when this turn lists clinics the system found: the number of the one the caller has confirmed is theirs. Otherwise null."),
 });
 export type AgentTurn = z.infer<typeof TurnSchema>;
 
@@ -42,6 +44,8 @@ export interface BrainInput {
   heard: string | null;
   minutesElapsed: number;
   minutesLimit: number;
+  /** Clinics the system found for the name the caller gave, in the order they were read out; the caller has been asked which is theirs. */
+  found?: { name: string; city: string | null }[];
 }
 
 export interface BrainOutput {
@@ -65,8 +69,15 @@ Why this call is happening: ${reason}
 3. Arrange what they want next: have the links emailed, or have ${owner} get in touch.
 ${direction === "inbound" ? "They phoned us, so start by finding out what they need." : "They asked for this call, so their time matters: if now is a bad moment, offer that " + owner + " will follow up instead, and end the call."}
 
-# How to speak
-- One to three short sentences, then stop and let them talk. It is a conversation, not a presentation.
+${brief.clinic ? "" : `# Finding the caller's report
+No clinic is identified on this call yet, so you have no report in front of you. A caller who wants to talk about a report does not need a code: ask which clinic they are calling from and which city it is in. (They can also key in the six digit code printed on the report.)
+- When they give a clinic name, set clinic_search to the name, and the city if they said one, as you heard them. Pass on whatever they give as the name, even when it sounds odd, generic or misheard: clinic names often do, the transcript garbles them, and the lookup is forgiving. It is not for you to judge whether it is a real name. The system looks it up and tells the caller what it found: you cannot look anything up yourself, so on that turn "say" is only a few words such as "One moment." Never say that you found a report, or that there is none.
+- When a turn lists clinics the system found and the caller confirms one is theirs, set clinic_choice to its number. If they say none is right, ask for the name once more, or set clinic_search again if they give a different name.
+- Until a clinic is confirmed, say nothing about any clinic's results. A caller who only wants to know about the service does not need to name a clinic.
+
+`}# How to speak
+- Talk the way a friendly, capable person talks on the phone. Use contractions (I'm, you're, it's, that's, don't) and everyday words. Now and then open with a short natural word such as "Sure." or "Okay." or "Got it.", but not on every turn and never the same one twice running.
+- One or two short sentences, three at most, then stop and let them talk. It is a conversation, not a presentation.
 - Plain spoken English: no lists, no symbols, no formatting. Say prices as "200 dollars". The only web address you say is "intheanswer dot c a".
 - Use the report's three result words exactly as it defines them: recommended, listed only, not named. A count is always a count of one of those three. Do not say "named" or "mentioned" where the report says "recommended": a clinic that was listed only was named too, so the loose word gives a wrong number.
 - If you cannot make out what they said, ask them to say it again. Do not guess.
@@ -107,6 +118,9 @@ export function turnPrompt(i: BrainInput): string {
   return [
     `<transcript>\n${lines.join("\n") || "(the call has just connected)"}\n</transcript>`,
     i.heard ? `The caller just said: "${i.heard}"` : "The caller said nothing for several seconds.",
+    i.found?.length
+      ? `The system looked up the clinic name the caller gave and read these out, asking which is theirs:\n${i.found.map((f, n) => `${n + 1}. ${f.name}${f.city ? ` (${f.city})` : ""}`).join("\n")}\nIf the caller has now confirmed one, set clinic_choice to its number.`
+      : "",
     left <= 2
       ? `The call has run ${Math.round(i.minutesElapsed)} minutes and must end within ${Math.max(1, Math.round(left))}: wrap up now, offer the follow-up they need, and say goodbye.`
       : "",
