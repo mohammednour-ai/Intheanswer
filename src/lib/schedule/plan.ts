@@ -15,7 +15,8 @@ export const PURCHASE_RETEST_WINDOW_DAYS = 30;
 
 /**
  * Discovery: every active target once a calendar month, at most
- * `discovery_targets_per_day` a day, the target discovered longest ago first,
+ * `discovery_targets_per_day` a day, the city with the lowest
+ * `search_priority` first, then the target discovered longest ago,
  * business days only. Key `discover:<targetId>:<month>`.
  */
 export async function planDiscovery(now: Date, settings: Pick<AppSettings, "discovery_targets_per_day">): Promise<string[]> {
@@ -38,7 +39,7 @@ export async function planDiscovery(now: Date, settings: Pick<AppSettings, "disc
     where t.active and s.active and c.active
       and (t.last_run_at is null or t.last_run_at < ${monthStart})
       and not exists (select 1 from jobs j where j.idempotency_key = 'discover:' || t.id || ':' || ${month})
-    order by t.last_run_at asc nulls first, t.id
+    order by c.search_priority, t.last_run_at asc nulls first, t.id
     limit ${room}`;
   const started: string[] = [];
   for (const t of targets) {
