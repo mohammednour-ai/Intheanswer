@@ -37,8 +37,11 @@ export interface RelayDeps {
 }
 
 export const RELAY = {
-  /** A reply slower than this gets "One moment." first. */
-  fillerAfterMs: 1800,
+  /**
+   * A reply slower than this gets "One moment." first. Most replies take 1.5 to 2.2 seconds on
+   * production (22 November 2026): at 1.8 the filler often came a fifth of a second before the answer.
+   */
+  fillerAfterMs: 2500,
   /**
    * A connection older than this is handed over to a new one at the next line. Vercel closes a
    * function's connection at its maximum duration (300 seconds on the Hobby plan): this leaves room
