@@ -3,6 +3,8 @@ import { db, closeDb } from "@/lib/db";
 import { buildTeaserData } from "@/lib/reports/teaser";
 import { renderTeaser } from "@/lib/reports/renderTeaser";
 import { buildFirstEmail } from "@/lib/emails/firstEmail";
+import { OFFER_MARKER } from "@/lib/reports/offerSection";
+import { emailOfferLines } from "@/lib/offer";
 import { verifyTeaser, scanLanguage, type ModelVerifier } from "@/lib/pipeline/verify";
 import { computeClinicResults } from "@/lib/pipeline/score";
 import { resetData, makeClinic } from "./helpers";
@@ -55,7 +57,7 @@ async function setup(opts: { recommendedIn?: number[] } = {}) {
   const [score] = await sql<{ id: string }[]>`
     insert into scores (clinic_id, test_run_id, audit_id, recommended, listed_only, not_named, total, confirmed_findings, qualifies, reason)
     values (${clinicId}, ${run.id}, ${audit.id}, ${rec}, 0, ${6 - rec}, 6, 4, true, 'ok') returning id`;
-  const data = await buildTeaserData(clinicId, score.id, "tok_test_000000000000");
+  const data = await buildTeaserData(clinicId, score.id);
   const draft = buildFirstEmail(data, { toEmail: "info@maplegrove.example", sourceUrl: "https://maplegrove.example/", reportUrl: "https://intheanswer.test/r/tok" });
   return { clinicId, scoreId: score.id, auditId: audit.id, data, draft };
 }
@@ -74,18 +76,27 @@ describe("teaser and verification gate", () => {
     const html = renderTeaser(data);
     expect(html).toContain("In the answer");
     expect(html).toContain("1 of 6");
-    expect(html).toContain("Full service plan");
+    // the plans are not part of the stored report: only the place they are written into when it is shown
+    expect(html).toContain(OFFER_MARKER);
+    expect(html).not.toMatch(/\d+ CAD|Full service plan|Monthly reports|\/buy\//);
+    expect(data.siteUrl).toBe("https://intheanswer.test");
+    expect(data).not.toHaveProperty("offers");
     expect(html).not.toMatch(/gradient/i);
   });
 
-  it("email: specific subject, two findings, link, both offers, identity and unsubscribe", async () => {
+  it("email: specific subject, two findings, link, the published plans, identity and unsubscribe", async () => {
     const { draft } = await setup({ recommendedIn: [0] });
     expect(draft.subject).toBe("Maple Grove Dental was recommended in 1 of 6 AI answers for Barrie patients");
     expect(draft.bodyText).toContain("1. Two different sets of hours");
     expect(draft.bodyText).toContain("2. Your site still shows a notice");
     expect(draft.bodyText).toContain("https://intheanswer.test/r/tok");
-    expect(draft.bodyText).toMatch(/200 CAD, one time/);
-    expect(draft.bodyText).toMatch(/200 CAD a month/);
+    // the plans bought online, one line each, exactly as src/lib/offer.ts states them, and no link to buy in a cold email
+    const lines = draft.bodyText.split("\n");
+    const at = lines.indexOf("If you want it fixed:");
+    expect(lines.slice(at + 1, at + 4)).toEqual(emailOfferLines());
+    expect(lines[at + 4]).toBe("");
+    expect(draft.bodyText).toContain("- Growth: 450 CAD a month, plus 500 CAD setup, 6-month minimum, then month to month.");
+    expect(draft.bodyText).not.toMatch(/\b150 CAD|\b50 CAD|Monthly reports|Full service plan|\/buy\//);
     expect(draft.bodyText).toMatch(/intheanswer\.test\/unsubscribe\//);
     expect(draft.bodyText).toContain("published on https://maplegrove.example/");
   });
@@ -202,7 +213,7 @@ describe("teaser and verification gate", () => {
               clinics_named = ${sql.json([{ name: "Premier Dental Barrie", url: null, status: "recommended", quote: "Premier Dental Barrie is accepting new patients" }])}`;
     await sql`update clinics set name = 'Top Care Dental' where id=${s.clinicId}`;
     await computeClinicResults(s.clinicId, (await sql`select test_run_id from scores where id=${s.scoreId}`)[0].test_run_id);
-    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_444444444444");
+    const data = await buildTeaserData(s.clinicId, s.scoreId);
     const draft = buildFirstEmail(data, { toEmail: "info@maplegrove.example", sourceUrl: "https://maplegrove.example/", reportUrl: "https://intheanswer.test/r/tok" });
     expect(draft.subject).toContain("Top Care Dental");
     expect(data.rows[0].namedInstead).toEqual(["Premier Dental Barrie"]);
@@ -244,7 +255,7 @@ describe("gate rules for site test and review claims", () => {
       { key: "mobile_layout", result: "needs_work", impact: 92, text: "On a simulated phone your home page is wider than the screen." },
       { key: "speed_mobile", result: "could_not_test", impact: 99, text: null },
     ]);
-    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_111111111111");
+    const data = await buildTeaserData(s.clinicId, s.scoreId);
     const site = data.findings.filter((f) => f.source === "site");
     expect(data.findings).toHaveLength(3);
     expect(site).toHaveLength(1);
@@ -259,7 +270,7 @@ describe("gate rules for site test and review claims", () => {
   it("a site check that turns out to be could-not-test can never be stated as a problem", async () => {
     const s = await setup();
     const runId = await addSiteRun(s.clinicId, [{ key: "booking_path", result: "needs_work", impact: 100, text: "From your home page we did not find a booking link." }]);
-    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_222222222222");
+    const data = await buildTeaserData(s.clinicId, s.scoreId);
     await db()`update site_test_checks set result='could_not_test' where run_id=${runId}`;
     const v = await verifyTeaser({ data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
     expect(v.flags.map((f) => f.code)).toContain("unverified_as_fact");
@@ -269,7 +280,7 @@ describe("gate rules for site test and review claims", () => {
   it("a site finding whose text no longer matches the stored result is removed", async () => {
     const s = await setup();
     await addSiteRun(s.clinicId, [{ key: "booking_path", result: "needs_work", impact: 100, text: "Stored sentence." }]);
-    const data = await buildTeaserData(s.clinicId, s.scoreId, "tok_test_333333333333");
+    const data = await buildTeaserData(s.clinicId, s.scoreId);
     const f = data.findings.find((x) => x.source === "site")!;
     f.text = "Your site has no way to book at all.";
     const v = await verifyTeaser({ data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });

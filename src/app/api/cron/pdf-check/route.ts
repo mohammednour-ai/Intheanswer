@@ -5,6 +5,8 @@ import { htmlToPdf } from "@/lib/reports/pdf";
 import { sampleTeaser } from "@/lib/reports/sample";
 import { renderTeaser } from "@/lib/reports/renderTeaser";
 import { LIVE_REVIEWS_MARKER } from "@/lib/reviews/liveTable";
+import { fillOffer } from "@/lib/reports/offerSection";
+import { sampleOfferContext } from "@/lib/reports/offerContext";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +25,9 @@ export async function GET(req: NextRequest) {
   }
   const t0 = Date.now();
   try {
-    const pdf = await htmlToPdf(renderTeaser(sampleTeaser()).replace(LIVE_REVIEWS_MARKER, ""));
+    // the same document a clinic is sent: the sample report with its plan cards written in
+    const sample = sampleTeaser();
+    const pdf = await htmlToPdf(fillOffer(renderTeaser(sample).replace(LIVE_REVIEWS_MARKER, ""), await sampleOfferContext(sample.findingsTotal)));
     const isPdf = pdf.subarray(0, 5).toString("latin1") === "%PDF-";
     return NextResponse.json({ ok: isPdf, bytes: pdf.length, ms: Date.now() - t0 });
   } catch (e) {

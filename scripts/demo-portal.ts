@@ -10,6 +10,8 @@ import { buildFirstEmail } from "../src/lib/emails/firstEmail";
 import { verifyTeaser } from "../src/lib/pipeline/verify";
 import { computeClinicResults } from "../src/lib/pipeline/score";
 import { htmlToPdf } from "../src/lib/reports/pdf";
+import { fillOffer } from "../src/lib/reports/offerSection";
+import { offerContextFor } from "../src/lib/reports/offerContext";
 import { putFile } from "../src/lib/storage";
 import { randomToken, sha256 } from "../src/lib/tokens";
 
@@ -87,15 +89,17 @@ async function main() {
     values (${clinic.id}, ${run.id}, ${audit.id}, 1, 0, 5, 6, 4, true, 'demo') returning id`;
 
   const token = randomToken();
-  const data = await buildTeaserData(clinic.id, score.id, token);
+  const data = await buildTeaserData(clinic.id, score.id);
   const draft = buildFirstEmail(data, { toEmail: "info@birchwood-dental.example", sourceUrl: SITE, reportUrl: `http://localhost:3100/r/${token}` });
   const v = await verifyTeaser({
     data, draft, scoreId: score.id, live: false, withModel: true,
     verifier: async (items) => ({ verdicts: items.map((i) => ({ id: i.id, supported: true, issue: "none" as const, explanation: "" })), usage: null, costUsd: 0 }),
   });
-  const final = buildFirstEmail(v.data, { toEmail: "info@birchwood-dental.example", sourceUrl: SITE, reportUrl: `http://localhost:3100/r/${token}` });
+  // the plans as published now: stated in the email and written into the PDF; the stored page keeps a marker
+  const offer = await offerContextFor({ clinicId: clinic.id, teaserToken: token, findingsTotal: v.data.findingsTotal });
+  const final = buildFirstEmail(v.data, { toEmail: "info@birchwood-dental.example", sourceUrl: SITE, reportUrl: `http://localhost:3100/r/${token}`, switches: offer.switches });
   const html = renderTeaser(v.data);
-  const pdf = await htmlToPdf(html);
+  const pdf = await htmlToPdf(fillOffer(html, offer));
   const pdfRef = await putFile(`reports/${token}.pdf`, pdf, "application/pdf");
   const [rep] = await sql<{ id: string }[]>`
     insert into reports (clinic_id, kind, token, score_id, data, html, pdf_path, pdf_bytes)

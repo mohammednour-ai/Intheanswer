@@ -8,12 +8,16 @@ import { voice } from "../adapters/voice";
 import { queueMessage, queueOwnerMail, signature } from "../sending/outbox";
 import { nextWindowStart } from "../sending/rules";
 import { spendToday } from "../jobs/worker";
-import { COPILOT_NAME } from "../brand";
+import { VOICE_NAME } from "../brand";
 import { randomToken } from "../tokens";
-import { PLAN_NAMES, PLAN_PRICES } from "../payments/stripe";
+import { addBusinessDays, formatLongDate } from "../time";
+import { scanLanguage } from "../pipeline/verify";
+import { REPORT_CREDIT_TEXT, TIERS, emailOfferLines, isOnlineTier, offeredTo, priceText, termText, tierIncludes, type OnlineTier, type PillarKey } from "../offer";
+import { priceNote } from "../env";
+import { BUYING_LINES, PAINS, checkPlaybook, iceBreaker, linkSent, readBack, stageRank, type Pain, type PlaybookFlag, type Stage } from "./playbook";
 import { briefForClinic, generalBrief, linkRecipient, type CallBrief } from "./brief";
 import { claudeBrain, claudeReviewer, type Action, type Brain, type Reviewer, type TranscriptLine } from "./agent";
-import { checkSpoken, hearsOptOut, type SpokenFlag } from "./guard";
+import { FALLBACK_LINE, checkSpoken, hearsOptOut, type SpokenFlag } from "./guard";
 import { displayPhone, lastTen, normalizeCanadianPhone, spokenCode } from "./phone";
 import { MAX_ATTEMPTS, callsReady, checkCall, stopAllContact, suppressPhone } from "./rules";
 import { hangUp, sayAndHangUp, sayAndListen } from "./twiml";
@@ -42,6 +46,16 @@ interface CallState {
   lookup?: { found: { id: string; name: string; city: string | null }[]; misses: number };
   turns?: number;
   voicemail?: boolean;    // an answering machine picked up
+  // The playbook (see playbook.ts): where the call stands, kept so its rules can be enforced.
+  stage?: Stage;
+  pains?: Pain[];             // problems the caller's own words pointed to
+  buying?: boolean;           // the caller asked the price, what is included or how to start
+  declined?: boolean;         // the caller said not now to the offer
+  reassured?: boolean;        // the one reassurance sentence has been said
+  pillars?: PillarKey[];      // parts of the service already named
+  pendingCheckout?: OnlineTier | null; // the plan just read back, waiting for the caller's yes
+  offTrack?: number;          // lines the playbook check replaced
+  unclear?: number;           // turns in a row where the caller could not be made out
 }
 
 interface Signals {
@@ -53,6 +67,16 @@ interface Signals {
   guard_blocks?: number;
   /** Inbound: how we know which clinic is calling. By name is the caller's word only. */
   identified_by?: "caller_id" | "code" | "name";
+  // What the call came to, for the owner and the after-call review.
+  stage?: Stage;                      // the furthest step reached
+  pains?: Pain[];
+  plan?: string;                      // the plan discussed or chosen
+  choice?: "start_now" | "think_it_over" | "talk_to_person";
+  sent?: string[];                    // what was emailed at the caller's request: report, checkout:<plan>
+  summary_wanted?: boolean;           // a summary email is written after the call (it waits for the owner's approval)
+  follow_up_ok?: boolean;             // the caller agreed to one follow-up email
+  not_decision_maker?: boolean;
+  playbook_blocks?: number;
 }
 
 interface CallRow {
@@ -207,19 +231,28 @@ async function consentSource(consentId: string | null): Promise<string | null> {
   return c?.source ?? null;
 }
 
-function outboundGreeting(c: CallRow, source: string | null): string {
-  const clinic = c.brief?.clinic?.name ?? "your clinic";
-  const why = source === "web_form"
-    ? "Someone at your clinic asked on our website for this call about your AI visibility report."
-    : "Your clinic asked us to call about your AI visibility report.";
-  return `Hi${c.contact_name ? ` ${c.contact_name}` : ""}, this is the ${COPILOT_NAME}. I'm an AI assistant. ${why} ${TRANSCRIBED} Is now a good time to go through the report for ${clinic}?`;
+/** Who is calling, that it is an AI, that the call is transcribed: the same words on every call. */
+const HELLO = `this is ${VOICE_NAME}, the AI assistant from In The Answer. ${TRANSCRIBED}`;
+
+/**
+ * The opening of a call we place: the disclosure, exactly one ice-breaker from the approved set
+ * (chosen from how the call came about), and whether now is still a good time.
+ */
+export function outboundGreeting(x: { contactName: string | null; clinic: string | null; source: string | null }, now = new Date()): string {
+  const ice = iceBreaker({ direction: "outbound", source: x.source, now });
+  const about = x.clinic ? `the report for ${x.clinic}` : "your report";
+  // a call that follows a web request or an email reply says so in its ice-breaker; any other request is named here
+  const asked = x.source === "web_form" || x.source === "email_reply" ? "" : ` You asked us to call about ${about}.`;
+  return `Hi${x.contactName ? ` ${x.contactName}` : ""}, ${HELLO} ${ice}${asked} Is now still a good time${asked ? "" : ` to go through ${about}`}?`;
 }
 
 function reasonFor(c: CallRow, source: string | null): string {
   if (c.direction === "inbound") return "The caller phoned In The Answer's number.";
   return source === "web_form"
-    ? "Someone at the clinic asked for this call on the page their report links to, and agreed there to be called by an AI assistant."
-    : "The clinic asked to be called about its report; the owner recorded the request and scheduled this call.";
+    ? "Someone at the clinic asked for this call on the page their report links to, typed in this number, and agreed there to be called by an AI assistant."
+    : source === "email_reply"
+      ? "The clinic replied to our email and asked to be called at this number about its report."
+      : "The clinic asked to be called at this number about its report; our team recorded the request and scheduled this call.";
 }
 
 /** Outbound call answered: say who is calling, that it is an AI, and why. */
@@ -229,14 +262,17 @@ export async function onAnswer(token: string): Promise<string> {
   if (c.status !== "dialing") return hangUp(); // answered twice, or already over
   const sql = db();
   await sql`update calls set status='in_progress', started_at=now(), updated_at=now() where id=${c.id} and status='dialing'`;
-  const line = outboundGreeting(c, await consentSource(c.consent_id));
+  const line = outboundGreeting({ contactName: c.contact_name, clinic: c.brief.clinic?.name ?? null, source: await consentSource(c.consent_id) });
   await addTurn(c.id, "agent", line, { action: "continue", fixed: true });
-  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief), voice: resolveVoice((await getSettings()).call_voice) });
+  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief), voice: resolveVoice((await getSettings()).call_voice), timeout: listenFor(line) });
 }
 
 function hintsFor(b: CallBrief | null): string[] {
-  return [b?.clinic?.name ?? "", "report", "In The Answer", "full report", "monthly reports", "full service plan", "recommended", "not named", "listed only"].filter(Boolean);
+  return [b?.clinic?.name ?? "", "report", "In The Answer", VOICE_NAME, "full report", "Visibility", "Growth", "Transformation", "recommended", "not named", "listed only"].filter(Boolean);
 }
+
+/** Seconds of silence before we check the caller is still there: 4, or 6 after a question, so they can think. */
+const listenFor = (line: string) => (/\?\s*$/.test(line) ? 6 : 4);
 
 // ---------------------------------------------------------------------------
 // A clinic phones us
@@ -263,12 +299,12 @@ function unavailableLine(): string {
   return `Thanks for calling In The Answer. Our phone assistant isn't available right now. Please email ${o.email.replace("@", " at ")}, or visit intheanswer dot c a. Goodbye.`;
 }
 
-/** The first thing a caller to our number hears: that this is an AI, that the call is transcribed, and how to get to their report. */
+/** The first thing a caller to our number hears: that this is an AI, that the call is transcribed, one thank-you, and how to get to their report. */
 export function inboundGreeting(clinicName: string | null): string {
-  const hello = `Hi, you've reached the ${COPILOT_NAME}. I'm an AI assistant, and this call is transcribed so our team can review it.`;
+  const ice = iceBreaker({ direction: "inbound", clinicKnown: !!clinicName });
   return clinicName
-    ? `${hello} I see you're calling from the number for ${clinicName}. Would you like me to walk you through its report?`
-    : `${hello} Are you calling about your clinic's report? If so, tell me the clinic's name and its city, or key in the six digit code from the report.`;
+    ? `Hi, ${HELLO} ${ice} I see you're calling from the number for ${clinicName}. Shall I start with the headline result?`
+    : `Hi, ${HELLO} ${ice} Are you calling about your clinic's report? If so, tell me the clinic's name and its city, or key in the six digit code from the report.`;
 }
 
 /** The provider's request when someone calls our number. */
@@ -295,7 +331,7 @@ export async function onIncoming(p: { callSid: string; from: string }): Promise<
   const c = (await loadCall({ id }))!;
   const line = inboundGreeting(brief.clinic?.name ?? null);
   await addTurn(id, "agent", line, { action: "continue", fixed: true });
-  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6, voice: resolveVoice(settings.call_voice) });
+  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6, voice: resolveVoice(settings.call_voice), timeout: listenFor(line) });
 }
 
 // ---------------------------------------------------------------------------
@@ -315,34 +351,60 @@ async function recordHandoff(c: CallRow, note: string) {
      `Transcript: ${env().APP_URL}/portal/calls#call-${c.id}`].join("\n"));
 }
 
-/** Queue the email the caller asked for: their report and the checkout links. It goes through the usual review and sending rules. */
-async function emailLinks(c: CallRow): Promise<boolean> {
+/**
+ * Send what the caller asked for on the phone: the report with the plans, or the checkout link for
+ * one plan. Every word is the program's, built from the offer file, so these go out at once (the
+ * type "requested_on_call" is never held for review). False when there is no address to send to.
+ */
+async function sendRequested(c: CallRow, what: "report" | "checkout", plan?: OnlineTier): Promise<boolean> {
   if (!c.clinic_id || !c.brief?.reportToken) return false;
   const to = await linkRecipient(c.clinic_id);
   if (!to) return false;
   const base = env().APP_URL.replace(/\/$/, "");
   const [teaser] = await db()<{ token: string }[]>`
     select token from reports where clinic_id=${c.clinic_id} and kind='teaser' and data->>'verified' = 'true' order by created_at desc limit 1`;
-  const p = PLAN_PRICES;
-  const cad = (cents: number | null) => `${(cents ?? 0) / 100} CAD`;
-  const has = c.brief.plan;
-  const options = !teaser || has === "monthly" ? [] : [
-    ...(has ? [] : [`- ${PLAN_NAMES.report}, ${cad(p.report.oneTime)}, one time: ${base}/buy/${teaser.token}/report`]),
-    ...(has === "reports" ? [] : [`- ${PLAN_NAMES.reports}, ${cad((p.reports.monthly ?? 0) + (p.reports.firstExtra ?? 0))} for the first month, then ${cad(p.reports.monthly)} a month: ${base}/buy/${teaser.token}/reports`]),
-    ...(has === "reports" ? [] : [`- ${PLAN_NAMES.monthly}, ${cad(p.monthly.monthly)} a month: ${base}/buy/${teaser.token}/monthly`]),
-  ];
-  const body = [
-    `Hello,`, ``,
-    `As you asked on the phone, here is your report:`, `${base}/r/${c.brief.reportToken}`, ``,
-    ...(options.length ? [`And the options we talked about:`, ``, ...options, ``] : []),
-    `If you would rather talk to a person first, reply to this email.`, ``, signature(),
-  ].join("\n");
+  const reportUrl = `${base}/r/${c.brief.reportToken}`;
+  const close = [`If you would rather talk to a person first, reply to this email.`, ``, signature()];
+  let subject: string;
+  let lines: string[];
+  if (what === "checkout") {
+    if (!plan || !teaser) return false;
+    const tier = TIERS[plan];
+    const switches = c.brief.playbook?.switches;
+    subject = `Your checkout link: ${tier.name}`;
+    lines = [
+      `Hello,`, ``,
+      `As you asked on the phone, here is the secure checkout link for ${tier.inSentence}:`, `${base}/buy/${teaser.token}/${plan}`, ``,
+      `${tier.name}: ${priceText(plan)}. ${termText(plan)[0].toUpperCase()}${termText(plan).slice(1)}.`,
+      `What it includes:`, ...tierIncludes(plan, switches).map((l) => `- ${l}`), ``,
+      priceNote(),
+      ...(tier.kind === "subscription" && (!c.brief.plan || c.brief.plan === "report") ? [REPORT_CREDIT_TEXT] : []),
+      `Payment is taken by Stripe on that page. We never take card details by phone or by email.`, ``,
+      `Your report:`, reportUrl, ``, ...close,
+    ];
+  } else {
+    const options = teaser ? emailOfferLines({ buyBase: `${base}/buy/${teaser.token}`, has: c.brief.plan, switches: c.brief.playbook?.switches }) : [];
+    subject = "Your In The Answer report, as asked on the phone";
+    lines = [
+      `Hello,`, ``,
+      `As you asked on the phone, here is your report:`, reportUrl, ``,
+      ...(options.length ? [`The plans, if you want it fixed:`, ``, ...options, ``, priceNote(), ``] : []),
+      ...close,
+    ];
+  }
   await queueMessage({
-    type: "interested_reply", toEmail: to, subject: "Your In The Answer report, as asked on the phone", bodyText: body,
-    clinicId: c.clinic_id, idempotencyKey: `call-links:${c.id}`, priority: 15,
+    type: "requested_on_call", toEmail: to, subject, bodyText: lines.join("\n"),
+    clinicId: c.clinic_id, idempotencyKey: `call-send:${c.id}:${what}:${plan ?? ""}`, priority: 10,
   });
+  c.signals.sent = [...new Set([...(c.signals.sent ?? []), what === "checkout" ? `checkout:${plan}` : what])];
   return true;
 }
+
+/** A line that asks whether to email something, as opposed to one that says it is being emailed. */
+export const ASKS_TO_SEND = /\b(shall|should|would|could|can|may|want|like)\b[^.?!]*\b(i|we|me|us)\b[^.?!]*\b(e-?mail\w*|send\w*)\b[^.?!]*\?\s*$/i;
+
+/** Said when the playbook check stops a line: back to the report, where every call is on firm ground. */
+const BACK_TO_REPORT = "Let me stay with what's in your report. What would you like to hear more about?";
 
 const inCity = (m: { name: string; city: string | null }) => `${m.name}${m.city ? ` in ${m.city}` : ""}`;
 
@@ -389,7 +451,7 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     if (action === "continue") {
       // until the clinic is known, six keyed digits end the wait at once: they are a report code
       const hints = [...hintsFor(c.brief), ...(c.state.lookup?.found ?? []).flatMap((f) => [f.name, f.city ?? ""])].filter(Boolean);
-      return sayAndListen(line, turnUrl, { hints, digits: c.clinic_id ? undefined : 6, voice: spokenIn });
+      return sayAndListen(line, turnUrl, { hints, digits: c.clinic_id ? undefined : 6, voice: spokenIn, timeout: listenFor(line) });
     }
     await closeOurEnd(c);
     return sayAndHangUp(line, spokenIn);
@@ -408,10 +470,16 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
   };
   c.state.turns = (c.state.turns ?? 0) + 1;
 
-  // Silence: ask once, then let the line go.
+  // Silence: ask once, then let the line go. A caller we were already talking with, and can write to,
+  // is told a summary follows by email (it is written after the call and waits for the owner's approval).
   if (!heard) {
     c.state.silences = (c.state.silences ?? 0) + 1;
-    return c.state.silences >= 2 ? say(LINES.silenceBye, "end_call") : say(LINES.stillThere, "continue");
+    if (c.state.silences < 2) return say(LINES.stillThere, "continue");
+    if (c.clinic_id && c.brief.canEmailLinks && (await callerSpoke(c.id))) {
+      c.signals.summary_wanted = true;
+      return say(BUYING_LINES.silenceSummary, "end_call");
+    }
+    return say(LINES.silenceBye, "end_call");
   }
   c.state.silences = 0;
   await addTurn(c.id, "caller", heard);
@@ -452,6 +520,10 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
       brief: c.brief, direction: c.direction, reason: reasonFor(c, await consentSource(c.consent_id)),
       transcript: await transcript(c.id), heard, minutesElapsed: minutes, minutesLimit: settings.call_max_minutes,
       found: c.clinic_id ? undefined : c.state.lookup?.found.map((f) => ({ name: f.name, city: f.city })),
+      progress: {
+        pains: c.state.pains ?? [], reassured: !!c.state.reassured, declined: !!c.state.declined,
+        pendingCheckout: c.state.pendingCheckout ?? null, unclear: (c.state.unclear ?? 0) >= 1,
+      },
     });
     turn = r.turn;
     if (r.costUsd > 0) await recordCost(null, { provider: "anthropic", operation: "call_turn", units: (r.usage ?? {}) as never, costUsd: r.costUsd, clinicId: c.clinic_id });
@@ -472,6 +544,18 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     return hangUp();
   }
 
+  // What the caller has shown, as the model reports it, is kept on the call: the playbook's rules read
+  // it, and the after-call review checks it against what was actually said.
+  const pains = PAINS.filter((p) => (c.state.pains ?? []).includes(p) || turn.pains.includes(p));
+  c.state.pains = pains;
+  if (turn.buying_signal) { c.state.buying = true; c.state.declined = false; }
+  if (turn.declined) { c.state.declined = true; c.state.buying = false; c.state.pendingCheckout = null; }
+  if (stageRank(turn.stage) > stageRank(c.state.stage)) c.state.stage = turn.stage;
+  if (pains.length) c.signals.pains = pains;
+  c.signals.stage = c.state.stage;
+  if (turn.not_decision_maker) c.signals.not_decision_maker = true;
+  if (turn.follow_up_ok) c.signals.follow_up_ok = true;
+
   // A caller with no code names their clinic: the system looks it up and asks them to confirm.
   // These lines are ours, not the model's, so what the caller hears about a match is always what was found.
   if (!c.clinic_id && c.direction === "inbound" && turn.action === "continue") {
@@ -489,23 +573,86 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     }
   }
 
-  // Nothing reaches the caller's ear unchecked.
-  const checked = checkSpoken(turn.say, c.brief);
+  // A person is wanted, or a plan must be quoted: the owner hears of it whatever happens to the call next.
+  const note = (turn.handoff_note ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
+  if (note) {
+    await recordHandoff(c, note);
+    c.signals.choice ??= "talk_to_person";
+  }
+
+  // What the caller asked to be emailed. The buying step is the program's own: the plan, its price and
+  // its term are read back in the published words, and the link goes out only on a clear yes.
+  const leaving = turn.action === "do_not_call" || turn.action === "do_not_contact" || turn.action === "wrong_number";
+  const plan = isOnlineTier(turn.plan) ? turn.plan : null;
+  const wantsCheckout = turn.send === "checkout" && plan != null;
+  if (!wantsCheckout) c.state.pendingCheckout = null; // a read-back that is not answered with a yes lapses
+  // "Shall I email it to you?" is an offer, not a request: nothing is sent until the caller has answered it.
+  const stillAsking = turn.send !== "checkout" && ASKS_TO_SEND.test(turn.say);
+  if (turn.send && !leaving && !stillAsking) {
+    if (!c.clinic_id || !c.brief.canEmailLinks) {
+      await recordHandoff(c, `Asked to be emailed ${turn.send === "checkout" ? "a checkout link" : turn.send === "summary" ? "a summary of the call" : "the report"}, but no address is on file for this caller.`);
+      return say(BUYING_LINES.noAddress(owner), "continue");
+    }
+    if (wantsCheckout) {
+      c.signals.plan = plan;
+      if (!offeredTo(c.brief.plan).includes(plan) || (c.brief.plan && c.brief.plan !== "report")) {
+        // already on a plan: moving to another is arranged by email, so nobody is charged twice
+        await recordHandoff(c, `Already a customer (${c.brief.plan}) and wants ${TIERS[plan].inSentence}: arrange the change by email.`);
+        return say(BUYING_LINES.changeByEmail(owner), "continue");
+      }
+      if (turn.confirmed && c.state.pendingCheckout === plan) {
+        c.state.pendingCheckout = null;
+        if (!(await sendRequested(c, "checkout", plan))) {
+          await recordHandoff(c, `Said yes to ${TIERS[plan].inSentence}, but the checkout link could not be sent. Please send it.`);
+          return say(BUYING_LINES.noAddress(owner), "continue");
+        }
+        c.signals.choice = "start_now";
+        return say(linkSent(plan), "continue");
+      }
+      c.state.pendingCheckout = plan;
+      c.state.buying = true;
+      return say(readBack(plan), "continue");
+    }
+    if (turn.send === "report") await sendRequested(c, "report");
+    if (turn.send === "summary") {
+      c.signals.summary_wanted = true;
+      c.signals.choice ??= "think_it_over";
+    }
+  }
+
+  // Nothing reaches the caller's ear unchecked: first the wording rules every email obeys, then the playbook.
+  let checked = checkSpoken(turn.say, c.brief);
+  let playFlags: PlaybookFlag[] = [];
+  if (checked.ok && c.brief.playbook) {
+    const pb = c.brief.playbook;
+    const play = checkPlaybook(checked.text, {
+      pains, buyingSignal: !!c.state.buying, declined: !!c.state.declined, pillarsNamed: c.state.pillars ?? [], reassured: !!c.state.reassured,
+    }, pb.switches);
+    playFlags = play.flags;
+    if (!playFlags.length) {
+      c.state.pillars = [...new Set([...(c.state.pillars ?? []), ...play.pillars])];
+      if (pb.reassurance && checked.text.includes(pb.reassurance)) c.state.reassured = true;
+    } else if (playFlags.some((f) => f.code === "promise_wording" || f.code === "reassurance_twice")) {
+      // a promise in other words than the published ones is a wording fault, like any other
+      checked = { ok: false, text: FALLBACK_LINE, flags: playFlags };
+      playFlags = [];
+    }
+  }
   // a line that passed is the model's; a stopped one is replaced by a fixed line of ours
-  const extra = checked.ok ? { fromModel: true } : { blockedText: turn.say, flags: checked.flags };
+  const extra = checked.ok && !playFlags.length ? { fromModel: true } : { blockedText: turn.say, flags: [...checked.flags, ...playFlags] };
   if (!checked.ok) {
     c.state.blocked = (c.state.blocked ?? 0) + 1;
     c.signals.guard_blocks = c.state.blocked;
   }
-
-  // Follow-ups the model asked for go with whatever happens to the call next.
-  const note = (turn.handoff_note ?? "").replace(/\s+/g, " ").trim().slice(0, 500);
-  if (note) await recordHandoff(c, note);
-  if (turn.email_links && c.signals.email_links !== "queued") {
-    const queued = await emailLinks(c);
-    c.signals.email_links = queued ? "queued" : "no_address";
-    if (!queued) await recordHandoff(c, "Asked to be emailed the report and the links, but no address is on file for this caller.");
+  if (playFlags.length) {
+    // off the playbook (a service nobody asked about, a second offer after a no): not a wording fault,
+    // so the call goes on, back on the report
+    c.state.offTrack = (c.state.offTrack ?? 0) + 1;
+    c.signals.playbook_blocks = c.state.offTrack;
+    checked = { ok: true, text: playFlags.some((f) => f.code === "offer_after_no") ? BUYING_LINES.afterNo : BACK_TO_REPORT, flags: [] };
   }
+  // "could you say that again" twice in a row: the model is told to offer email instead
+  c.state.unclear = /\b(say (it|that) again|repeat that|didn'?t (quite )?catch|missed that)\b/i.test(checked.text) ? (c.state.unclear ?? 0) + 1 : 0;
 
   switch (turn.action) {
     case "do_not_contact":
@@ -614,7 +761,9 @@ export async function reviewCall(callId: string, ctx?: Pick<JobContext, "cost">)
   const c = await loadCall({ id: callId });
   if (!c || !c.brief) throw new PermanentJobError("call or its brief is missing");
   const lines = await transcript(callId);
-  const r = await reviewer(c.brief, lines);
+  const to = c.clinic_id ? await linkRecipient(c.clinic_id) : null;
+  const summaryWanted = !!c.signals.summary_wanted && !!to && !c.signals.do_not_contact;
+  const r = await reviewer(c.brief, lines, { summaryForClinic: summaryWanted });
   if (r.costUsd > 0) await ctx?.cost({ provider: "anthropic", operation: "call_review", units: (r.usage ?? {}) as never, costUsd: r.costUsd, clinicId: c.clinic_id });
   // What was done on the call outranks how the reviewer reads it.
   const outcome = c.signals.do_not_contact ? "no_contact_wanted" : c.signals.wrong_number ? "wrong_number" : r.review.outcome;
@@ -634,10 +783,80 @@ export async function reviewCall(callId: string, ctx?: Pick<JobContext, "cost">)
        r.review.unsupported.length ? `\nTo check (the assistant said something its brief does not support):\n${r.review.unsupported.map((u) => `- "${u.said}": ${u.issue}`).join("\n")}` : "",
        ``, `Transcript: ${link}`].filter((x) => x !== "").join("\n"));
   }
+  // The summary the caller was promised. It is written by the model, so unlike the links it is never
+  // sent as it is: it waits for the owner in the review queue, and the wording check reads it first.
+  const summary = (r.review.clinic_summary ?? "").replace(/\s+/g, " ").trim();
+  if (summaryWanted && to && summary && c.clinic_id) {
+    await queueMessage({
+      type: "interested_reply", toEmail: to, subject: "A summary of our call",
+      bodyText: [
+        `Hello,`, ``,
+        `Thank you for speaking with ${VOICE_NAME}, our AI assistant. Here is the short summary we said we would send.`, ``,
+        summary, ``,
+        ...(await plansBlock(c)),
+        `If you would rather talk to a person, reply to this email.`, ``, signature(),
+      ].join("\n"),
+      clinicId: c.clinic_id, idempotencyKey: `call-summary:${c.id}`, priority: 15,
+      flags: scanLanguage(summary, "call summary"), forceReview: "written by the AI after a phone call: read it before it goes",
+    });
+  }
+  // One follow-up email, only because the caller agreed to it on the call, three business days later.
+  if (c.signals.follow_up_ok && c.clinic_id && to && !c.signals.do_not_contact && !c.signals.do_not_call) {
+    const at = addBusinessDays(new Date(), FOLLOW_UP_BUSINESS_DAYS);
+    await enqueue("call_follow_up", `call_follow_up:${c.id}`, { callId: c.id }, { runAfter: at, priority: 40, maxAttempts: 3 });
+  }
   return { outcome, unsupported: r.review.unsupported.length };
 }
 
 register("review_call", async (ctx) => reviewCall((ctx.job.payload as { callId: string }).callId, ctx));
+
+export const FOLLOW_UP_BUSINESS_DAYS = 3;
+
+/** The report link and the plans this clinic can still be offered, as the lines of an email. */
+async function plansBlock(c: CallRow): Promise<string[]> {
+  if (!c.clinic_id || !c.brief?.reportToken) return [];
+  const base = env().APP_URL.replace(/\/$/, "");
+  const [teaser] = await db()<{ token: string }[]>`
+    select token from reports where clinic_id=${c.clinic_id} and kind='teaser' and data->>'verified' = 'true' order by created_at desc limit 1`;
+  const options = teaser ? emailOfferLines({ buyBase: `${base}/buy/${teaser.token}`, has: c.brief.plan, switches: c.brief.playbook?.switches }) : [];
+  return [
+    `Your report:`, `${base}/r/${c.brief.reportToken}`, ``,
+    ...(options.length ? [`The plans:`, ``, ...options, ``, priceNote(), ...(!c.brief.plan || c.brief.plan === "report" ? [REPORT_CREDIT_TEXT] : []), ``] : []),
+  ];
+}
+
+/**
+ * The one follow-up a caller agreed to. Nothing is sent to a clinic that has since bought, replied,
+ * asked for no contact or been called again; and it is the only one: the job key is the call.
+ * Like every email to a clinic that the program did not word for a direct request, it waits for
+ * the owner's approval.
+ */
+export async function callFollowUp(callId: string): Promise<{ queued: boolean; reason?: string }> {
+  const sql = db();
+  const c = await loadCall({ id: callId });
+  if (!c?.clinic_id || !c.brief) return { queued: false, reason: "call or clinic missing" };
+  const [clinic] = await sql<{ status: string; replied: boolean }[]>`select status::text, replied from clinics where id=${c.clinic_id}`;
+  if (!clinic || ["customer", "do_not_contact", "suppressed"].includes(clinic.status)) return { queued: false, reason: `clinic is ${clinic?.status ?? "gone"}` };
+  const [later] = await sql`select 1 from calls where clinic_id=${c.clinic_id} and created_at > ${c.created_at} and status='completed' and id <> ${c.id} limit 1`;
+  if (later) return { queued: false, reason: "the clinic has been spoken to since" };
+  const [inbound] = await sql`select 1 from inbound_messages where clinic_id=${c.clinic_id} and received_at > ${c.created_at} limit 1`.catch(() => []);
+  if (inbound) return { queued: false, reason: "the clinic has written since" };
+  const to = await linkRecipient(c.clinic_id);
+  if (!to) return { queued: false, reason: "no address on file" };
+  const msg = await queueMessage({
+    type: "interested_reply", toEmail: to, subject: "Following up on our call",
+    bodyText: [
+      `Hello,`, ``,
+      `You spoke with ${VOICE_NAME}, our AI assistant, on ${formatLongDate(c.started_at ?? c.created_at)} and said one follow-up was fine. This is it; there will be no other.`, ``,
+      ...(await plansBlock(c)),
+      `If the timing is not right, there is nothing you need to do. If you would rather talk to a person, reply to this email.`, ``, signature(),
+    ].join("\n"),
+    clinicId: c.clinic_id, idempotencyKey: `call-follow-up:${c.id}`, priority: 30,
+  });
+  return { queued: msg.created };
+}
+
+register("call_follow_up", async (ctx) => callFollowUp((ctx.job.payload as { callId: string }).callId));
 
 // ---------------------------------------------------------------------------
 // Housekeeping

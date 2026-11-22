@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { chargesHst, ownerDetails } from "@/lib/env";
-import { alreadyPurchased, isPlan, resolveBuyToken, startCheckout } from "@/lib/payments/checkout";
-import { checkoutState, minTermText, PLAN_NAMES, PLAN_PRICES, firstPaymentCents } from "@/lib/payments/stripe";
+import { alreadyPurchased, dueToday, isPlan, requestQuote, resolveBuyToken, startCheckout } from "@/lib/payments/checkout";
+import { checkoutState, minTermText, type Plan } from "@/lib/payments/stripe";
+import { LEGACY_PLAN, REPORT_CREDIT_TEXT, TIERS, cad, offeredTo, planName, priceText, termText, tierIncludes, type TierKey } from "@/lib/offer";
+import { offerSwitches } from "@/lib/offerSwitches";
 import { Shell } from "../../Shell";
 import site from "../../../(site)/site.module.css";
 import s from "../../buy.module.css";
@@ -11,18 +13,34 @@ import s from "../../buy.module.css";
 export const metadata: Metadata = { title: "Checkout", robots: { index: false, follow: false } };
 export const dynamic = "force-dynamic";
 
-/** Runs only on the button press, so a mail scanner that opens the link never creates a checkout. */
-async function go(token: string, plan: string) {
+/**
+ * Runs only on the button press, so a mail scanner that opens the link never
+ * creates a checkout. `shown` is the first payment the page displayed: if a
+ * credit ran out or was used in between, nothing is created and the page is
+ * shown again with the amount that is due now.
+ */
+async function go(token: string, plan: string, shown: number) {
   "use server";
   if (!isPlan(plan)) notFound();
-  const r = await startCheckout(token, plan);
+  const r = await startCheckout(token, plan, { expectCents: shown });
   if (r.kind === "redirect") redirect(r.url);
   if (r.kind === "not_found") notFound();
-  // closed / already purchased / too many tries: the page itself explains
-  redirect(`/buy/${token}/${plan}${r.kind === "busy" ? "?e=busy" : ""}`);
+  // closed / already purchased / too many tries / amount changed: the page itself explains
+  redirect(`/buy/${token}/${plan}${r.kind === "busy" ? "?e=busy" : r.kind === "changed" ? "?e=changed" : ""}`);
 }
 
-const cad = (cents: number) => `${cents / 100} CAD`;
+/** The plan that is quoted, not bought: the request goes to the owner. Nothing is charged. */
+async function askForQuote(token: string, form: FormData) {
+  "use server";
+  if (String(form.get("ita_check_7q") ?? "")) redirect(`/buy/${token}/transformation?sent=1`); // bots get the same answer and nothing happens
+  const r = await requestQuote(token, {
+    phone: String(form.get("phone") ?? ""),
+    bestTime: String(form.get("best_time") ?? ""),
+    note: String(form.get("note") ?? ""),
+  });
+  if (!r.ok && r.reason === "not_found") notFound();
+  redirect(`/buy/${token}/transformation?${r.ok ? "sent=1" : "e=busy"}`);
+}
 
 const ARROW = (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
@@ -46,7 +64,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** Numbered steps joined by a rail; the first (paying) is the one in blue. */
+/** Numbered steps joined by a rail; the first is the one in blue. */
 function Steps({ steps }: { steps: [string, string][] }) {
   return (
     <ol className={s.steps}>
@@ -66,32 +84,166 @@ function Steps({ steps }: { steps: [string, string][] }) {
   );
 }
 
+const STEPS: Record<TierKey, [string, string][]> = {
+  report: [
+    ["You pay", "By card, through Stripe. One payment."],
+    ["The report is checked", "Before it is sent to the email address you give at payment."],
+    ["The full report", "Every finding with the fix, and the fix files for your web person."],
+    ["One retest", "Four weeks later, with a second report showing what changed."],
+  ],
+  visibility: [
+    ["You pay", "By card, through Stripe. Billed each month."],
+    ["The full report", "You get the full report first, checked before it is sent."],
+    ["Access to your site", "We write to arrange it, so we can publish the answer pages and the fixes."],
+    ["Every month", "A fresh retest, and a report showing what changed and what we did."],
+  ],
+  growth: [
+    ["You pay", "By card, through Stripe. The first payment includes the setup."],
+    ["The full report", "You get the full report first, checked before it is sent."],
+    ["A short form about your website", "So we can begin the rebuild and set up the rest."],
+    ["Every month", "A fresh retest, and a report showing what changed and what we did."],
+  ],
+  transformation: [
+    ["You ask", "Leave a phone number. Nothing is charged here."],
+    ["A short review", "A call about how your clinic works: booking, phones, forms, the tools you use."],
+    ["A written quote", "What we would connect and build, the monthly price and the term."],
+    ["You decide", "Nothing starts until you have agreed to the quote in writing."],
+  ],
+};
+
+/** The other plans, one line each: the same three facts as the plan cards. */
+function Others({ token, current, has, contact }: { token: string; current: TierKey; has: string | null; contact: React.ReactNode }) {
+  const others = offeredTo(has).filter((k) => k !== current);
+  if (!others.length) return <p className={s.ask}>To ask a question first, write to {contact}.</p>;
+  return (
+    <section className={s.other} aria-labelledby="other-h">
+      <h2 id="other-h" className={s.label}>The other options</h2>
+      <ul className={s.otherList}>
+        {others.map((k) => (
+          <li key={k}>
+            <Link className={s.otherLink} href={`/buy/${token}/${k}`}>
+              <span className={s.otherText}>
+                <span className={s.otherName}>{TIERS[k].name}</span>
+                <span className={s.otherSum}>{priceText(k)} · {TIERS[k].whoDoesIt} · {termText(k)}</span>
+              </span>
+              {ARROW}
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <p className={s.ask}>To ask a question first, write to {contact}.</p>
+    </section>
+  );
+}
+
 export default async function BuyPage(props: PageProps<"/buy/[token]/[plan]">) {
-  const { token, plan } = await props.params;
+  const { token, plan: asked } = await props.params;
   const sp = await props.searchParams;
-  if (!isPlan(plan)) notFound();
+  const plan: Plan | "transformation" | null = isPlan(asked) ? asked : asked === "transformation" ? "transformation" : null;
+  if (!plan) {
+    // A link from before the plans changed leads to the plan that replaced it.
+    if (Object.prototype.hasOwnProperty.call(LEGACY_PLAN, asked)) redirect(`/buy/${token}/${LEGACY_PLAN[asked]}?changed=1`);
+    notFound();
+  }
   const target = await resolveBuyToken(token);
   if (!target) notFound();
   const o = ownerDetails();
   const contact = <a href={`mailto:${o.email}`}>{o.email}</a>;
+  const switches = await offerSwitches();
+  const hst = chargesHst() && <> <span className={s.hst}>plus HST</span></>;
+  const back = (
+    <Link className={s.back} href={`/r/${token}`}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="M11 6l-6 6 6 6" /></svg>
+      Back to your report
+    </Link>
+  );
 
+  // ------------------------------------------------------------------ the plan that is quoted
+  if (plan === "transformation") {
+    const tier = TIERS.transformation;
+    const has = await alreadyPurchased(target.clinicId, "report");
+    return (
+      <Shell wide>
+        <div className={s.intro}>
+          {back}
+          <span className={site.eyebrow}>Quote</span>
+          <h1 className={site.h1}>{tier.name}</h1>
+          <p className={s.for}>For {target.clinicName}</p>
+        </div>
+        {sp.e === "busy" && <p className={`${s.notice} ${s.noticeWarn}`} role="alert">We already have your request. To add to it, write to {contact}.</p>}
+        <div className={s.layout}>
+          <section className={s.terms} aria-labelledby="terms-h">
+            <h2 id="terms-h" className={s.label}>What it covers</h2>
+            <p className={s.priceLine}>
+              <span className={s.price}>{cad(tier.monthlyCents)}</span>
+              <span><span className={s.per}>per month and up, quoted after a review</span>{hst}</span>
+            </p>
+            <ul className={s.rows}>
+              <Row label="Who does the work"><span className={s.weDo}>{tier.whoDoesIt}</span></Row>
+              <Row label="What you get">{tierIncludes("transformation", switches).join(". ")}.</Row>
+              <Row label="Minimum term"><strong className={s.big}>{minTermText(tier.minTermMonths ?? 0)}</strong><Meter months={tier.minTermMonths ?? 0} /><span>Then month to month.</span></Row>
+              <Row label="The price">Set in a written quote after a short review of how your clinic works. Nothing is charged on this page.</Row>
+            </ul>
+            {sp.sent === "1" ? (
+              <p className={`${s.notice} ${s.noticeOk}`} role="status">Thank you. {o.name} will call you about a quote for {target.clinicName}. Nothing was charged.</p>
+            ) : (
+              <form action={askForQuote.bind(null, token)} className={s.panel}>
+                <div className={site.field}>
+                  <label htmlFor="phone">Phone number to call</label>
+                  <input id="phone" name="phone" type="tel" inputMode="tel" autoComplete="tel" required maxLength={40} />
+                </div>
+                <div className={site.field}>
+                  <label htmlFor="best_time">Best time to call (optional)</label>
+                  <input id="best_time" name="best_time" type="text" maxLength={120} />
+                </div>
+                <div className={site.field}>
+                  <label htmlFor="note">What would you like connected or built? (optional)</label>
+                  <textarea id="note" name="note" rows={3} maxLength={600} />
+                </div>
+                {/* left empty by people; filled in by bots */}
+                <div className={site.hp} aria-hidden="true">
+                  <label htmlFor="ita_check_7q">Leave this empty</label>
+                  <input id="ita_check_7q" name="ita_check_7q" type="text" tabIndex={-1} autoComplete="off" />
+                </div>
+                <button className={`${site.btnPrimary} ${site.go}`}>{tier.action}{ARROW}</button>
+                <p className={s.fine}>A person calls you: {o.name}, {o.title}. Please do not put patient information in this form.</p>
+              </form>
+            )}
+            <p className={s.fine}>
+              What is included is described on the <Link href="/pricing">pricing page</Link>. No one can guarantee what an AI assistant will say; we report what it said and fix what we can see.
+            </p>
+          </section>
+          <div className={s.aside}>
+            <section className={s.next} aria-labelledby="next-h">
+              <h2 id="next-h" className={s.h2}>What happens next</h2>
+              <Steps steps={STEPS.transformation} />
+            </section>
+            <Others token={token} current="transformation" has={has} contact={contact} />
+          </div>
+        </div>
+      </Shell>
+    );
+  }
+
+  // ------------------------------------------------------------------ the plans bought online
   const has = await alreadyPurchased(target.clinicId, plan);
   if (has) {
     const onPlan = has !== "report";
+    const larger = offeredTo(has).filter((k) => k !== "report");
     return (
       <Shell>
-        <h1>{onPlan ?`You are already on ${has === "monthly" ? "the full service plan" : "monthly reports"}` : "You already have the full report"}</h1>
+        <h1>{onPlan ? `You are already on ${planName(has)}` : "You already have the full report"}</h1>
         <p>
           {onPlan
-            ? `${target.clinicName} is on ${has === "monthly" ? "the full service plan" : "monthly reports"}${plan === "report" ? ", which includes the full report" : ""}. Nothing more needs to be paid.`
+            ? `${target.clinicName} is on ${planName(has)}${plan === "report" ? ", which includes the full report" : ""}. Nothing more needs to be paid here.`
             : `The full report for ${target.clinicName} is already paid for. Nothing was charged again.`}
         </p>
-        {has === "reports" && plan === "monthly" && (
-          <p>To move from monthly reports to the full service plan, write to {contact} and we will switch you over without charging twice.</p>
+        {onPlan && plan !== "report" && offeredTo(has).includes(plan) && (
+          <p>To move to {TIERS[plan].inSentence}, write to {contact} and we will switch you over without charging twice.</p>
         )}
         <p>If an email from us has not arrived, or this looks wrong, write to {contact}.</p>
-        {has === "report" && plan === "report" && (
-          <p><Link href={`/buy/${token}/reports`}>See monthly reports</Link> · <Link href={`/buy/${token}/monthly`}>See the full service plan</Link></p>
+        {!onPlan && larger.length > 0 && (
+          <p>{larger.map((k, i) => <span key={k}>{i > 0 && " · "}<Link href={`/buy/${token}/${k}`}>See {TIERS[k].name}</Link></span>)}</p>
         )}
       </Shell>
     );
@@ -109,90 +261,62 @@ export default async function BuyPage(props: PageProps<"/buy/[token]/[plan]">) {
     );
   }
 
-  const prices = PLAN_PRICES[plan];
-  const others = (["report", "reports", "monthly"] as const).filter((p) => p !== plan);
-  const otherLabel = { report: "One-time report", reports: "Monthly reports", monthly: "Full service plan" } as const;
-  const contract = `${o.contractTerm} contract`;
-  // one line per option, the same three facts as the plan cards: price, who installs, how long you commit
-  const otherSummary = {
-    report: `${cad(PLAN_PRICES.report.oneTime!)} one time · Your web person installs · No contract`,
-    reports: `${cad(firstPaymentCents("reports"))} first month, then ${cad(PLAN_PRICES.reports.monthly!)} per month · Your web person installs · Minimum term ${o.reportsMinTerm}`,
-    monthly: `${cad(PLAN_PRICES.monthly.monthly!)} per month · We do the work for you · ${contract[0].toUpperCase() + contract.slice(1)}`,
-  } as const;
-  const steps: Record<typeof plan, [string, string][]> = {
-    report: [
-      ["You pay", "By card, through Stripe. One payment."],
-      ["The report is checked", "Before it is sent to the email address you give at payment."],
-      ["The full report", "Every finding with the fix, and the fix files for your web person."],
-      ["One retest", "Four weeks later, with a second report showing what changed."],
-    ],
-    reports: [
-      ["You pay", "By card, through Stripe. Billed each month."],
-      ["The full report", "With the fix files, checked before it is sent."],
-      ["Every month", "A fresh retest and an updated report."],
-    ],
-    monthly: [
-      ["You pay", "By card, through Stripe. Billed each month."],
-      ["The full report", "You get the full report first."],
-      ["A short form about your website", "So we can begin the work."],
-      ["The work begins", "We renovate your website, or take it over and run it, and install every fix."],
-    ],
-  };
+  const tier = TIERS[plan];
+  const monthly = tier.kind === "subscription";
+  const { cents: due, credit } = await dueToday(target.clinicId, plan);
+  const includes = tierIncludes(plan, switches);
   return (
     <Shell wide>
       <div className={s.intro}>
-        <Link className={s.back} href={`/r/${token}`}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 12H5" /><path d="M11 6l-6 6 6 6" /></svg>
-          Back to your report
-        </Link>
+        {back}
         <span className={site.eyebrow}>Checkout</span>
-        <h1 className={site.h1}>{PLAN_NAMES[plan]}</h1>
+        <h1 className={site.h1}>{tier.name}</h1>
         <p className={s.for}>For {target.clinicName}</p>
       </div>
+      {sp.changed === "1" && <p className={`${s.notice} ${s.noticeBlue}`} role="note">Our plans have changed since your link was made. The monthly work is now the {TIERS.visibility.name} plan, shown here.</p>}
       {sp.e === "busy" && <p className={`${s.notice} ${s.noticeWarn}`} role="alert">Too many tries in the last hour. Please try again later.</p>}
+      {sp.e === "changed" && <p className={`${s.notice} ${s.noticeWarn}`} role="alert">The amount due today has changed since this page was opened. Please check it below, then continue.</p>}
       <div className={s.layout}>
         <section className={s.terms} aria-labelledby="terms-h">
           <h2 id="terms-h" className={s.label}>What you are buying</h2>
           <p className={s.priceLine}>
-            {plan === "report" && <><span className={s.price}>{cad(prices.oneTime!)}</span><span><span className={s.per}>one time</span>{chargesHst() && <> <span className={s.hst}>plus HST</span></>}</span></>}
-            {plan === "reports" && <><span className={s.price}>{cad(firstPaymentCents(plan))}</span><span><span className={s.per}>for the first month, then {cad(prices.monthly!)} per month</span>{chargesHst() && <> <span className={s.hst}>plus HST</span></>}</span></>}
-            {plan === "monthly" && <><span className={s.price}>{cad(prices.monthly!)}</span><span><span className={s.per}>per month</span>{chargesHst() && <> <span className={s.hst}>plus HST</span></>}</span></>}
+            <span className={s.price}>{cad(monthly ? tier.monthlyCents : tier.oneTimeCents)}</span>
+            <span><span className={s.per}>{monthly ? `per month${tier.setupCents ? `, plus ${cad(tier.setupCents)} setup` : ""}` : "one time"}</span>{hst}</span>
           </p>
-          {plan === "report" && (
-            <ul className={s.rows}>
-              <Row label="Who does the work"><span className={s.big}>Your web person</span></Row>
-              <Row label="Billing">One payment by card. No contract.</Row>
-              <Row label="What you get">Every finding with what we saw and the fix, and the fix files for your web person.</Row>
-              <Row label="Retest">One retest four weeks later, with a second report showing what changed.</Row>
-              <Row label="Delivery">The report is checked before it is sent to the email address you give at payment.</Row>
-              <Row label="Refunds">Refunds are given when the report has not yet been delivered. To ask for one, write to us from the address you paid with.</Row>
-            </ul>
-          )}
-          {plan === "reports" && (
-            <ul className={s.rows}>
-              <Row label="Who does the work"><span className={s.big}>Your web person</span><span>The changes on your website are made by your own web person. To have us make them, choose the full service plan.</span></Row>
-              <Row label="Billing">Billed each month by card: {cad(firstPaymentCents(plan))} today, then {cad(prices.monthly!)} each month.</Row>
-              <Row label="Minimum term"><strong className={s.big}>{minTermText(state.minTerm!)}</strong><Meter months={state.minTerm ?? 0} /></Row>
-              <Row label="Renewal"><strong className={s.rowStrong}>The plan renews each month until it is cancelled.</strong></Row>
-              <Row label="What you get">The full report and fix files first, then an updated report every month after a fresh retest.</Row>
-              <Row label="To cancel">To cancel, write to us from the address you paid with.</Row>
-            </ul>
-          )}
-          {plan === "monthly" && (
-            <ul className={s.rows}>
-              <Row label="Who does the work"><span className={s.weDo}>We do the work for you</span></Row>
-              <Row label="Billing">Billed each month by card.</Row>
-              <Row label="Contract term"><strong className={s.big}>{minTermText(state.minTerm!)}</strong><Meter months={state.minTerm ?? 0} /></Row>
-              <Row label="Renewal"><strong className={s.rowStrong}>The plan renews each month until it is cancelled.</strong></Row>
-              <Row label="What we do">We renovate your website, or take it over and run it, and install every fix. The domain name and the content stay yours.</Row>
-              <Row label="After you pay">You get the full report first, then a short form about your website so we can begin the work.</Row>
-              <Row label="To cancel">To cancel, write to us from the address you paid with.</Row>
-            </ul>
-          )}
+          <ul className={s.rows}>
+            <Row label="Who does the work"><span className={monthly ? s.weDo : s.big}>{tier.whoDoesIt}</span></Row>
+            {monthly ? (
+              <>
+                <Row label="Due today">
+                  <strong className={s.big}>{cad(due)}</strong>
+                  <span>
+                    {tier.setupCents ? `The first month (${cad(tier.monthlyCents)}) and the setup (${cad(tier.setupCents)})` : "The first month"}
+                    {credit ? `, less the ${cad(credit.cents)} you paid for the full report` : ""}. Then {cad(tier.monthlyCents)} each month, by card.
+                  </span>
+                </Row>
+                <Row label="Minimum term">
+                  {state.minTerm
+                    ? <><strong className={s.big}>{minTermText(state.minTerm)}</strong><Meter months={state.minTerm} /><span>Then month to month.</span></>
+                    : <><strong className={s.big}>None</strong><Meter months={0} /><span>Month to month from the start.</span></>}
+                </Row>
+                <Row label="Renewal"><strong className={s.rowStrong}>The plan renews each month until it is cancelled.</strong></Row>
+                <Row label="What you get">{includes.join(". ")}. The domain name and the content stay yours.</Row>
+                <Row label="To cancel">To cancel, write to us from the address you paid with.</Row>
+              </>
+            ) : (
+              <>
+                <Row label="Billing">One payment by card. No contract.</Row>
+                <Row label="What you get">{includes.join(". ")}.</Row>
+                <Row label="Delivery">The report is checked before it is sent to the email address you give at payment.</Row>
+                <Row label="If you start a plan">{REPORT_CREDIT_TEXT}</Row>
+                <Row label="Refunds">Refunds are given when the report has not yet been delivered. To ask for one, write to us from the address you paid with.</Row>
+              </>
+            )}
+          </ul>
           <p className={s.fine}>
             What is included is described on the <Link href="/pricing">pricing page</Link>. No one can guarantee what an AI assistant will say; we report what it said and fix what we can see.
           </p>
-          <form action={go.bind(null, token, plan)} className={s.form}>
+          <form action={go.bind(null, token, plan, due)} className={s.form}>
             <button className={s.pay}>Continue to payment{ARROW}</button>
             <p className={s.stripe}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></svg>
@@ -204,25 +328,9 @@ export default async function BuyPage(props: PageProps<"/buy/[token]/[plan]">) {
         <div className={s.aside}>
           <section className={s.next} aria-labelledby="next-h">
             <h2 id="next-h" className={s.h2}>What happens next</h2>
-            <Steps steps={steps[plan]} />
+            <Steps steps={STEPS[plan]} />
           </section>
-          <section className={s.other} aria-labelledby="other-h">
-            <h2 id="other-h" className={s.label}>The other two options</h2>
-            <ul className={s.otherList}>
-              {others.map((p) => (
-                <li key={p}>
-                  <Link className={s.otherLink} href={`/buy/${token}/${p}`}>
-                    <span className={s.otherText}>
-                      <span className={s.otherName}>{otherLabel[p]}</span>
-                      <span className={s.otherSum}>{otherSummary[p]}</span>
-                    </span>
-                    {ARROW}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            <p className={s.ask}>To ask a question first, write to {contact}.</p>
-          </section>
+          <Others token={token} current={plan} has={null} contact={contact} />
         </div>
       </div>
     </Shell>

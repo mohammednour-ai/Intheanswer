@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import Stripe from "stripe";
 import { db, closeDb } from "@/lib/db";
 import { resetEnvForTests } from "@/lib/env";
-import { startCheckout, resolveBuyToken, alreadyPurchased } from "@/lib/payments/checkout";
+import { startCheckout, resolveBuyToken, alreadyPurchased, reportCredit, requestQuote, dueToday } from "@/lib/payments/checkout";
 import { checkoutState, minTermMonths, type CheckoutSessionParams, type StripeLike } from "@/lib/payments/stripe";
 import { receiveWebhook, processEvent } from "@/lib/payments/events";
 import { loadIntake, submitIntake } from "@/lib/payments/intake";
@@ -20,22 +20,23 @@ const SECRET = "whsec_test_secret";
 const real = new Stripe("sk_test_not_a_real_key");
 const TOKEN = "tok_teaser_0000000000001";
 
-function fakeStripe(price: Partial<{ currency: string; unit_amount: number; active: boolean }> = {}) {
+function fakeStripe(price: Partial<{ currency: string; unit_amount: number; active: boolean }> = {}, coupon: Partial<{ valid: boolean; amount_off: number; currency: string; duration: string }> = {}) {
   const created: CheckoutSessionParams[] = [];
   const client: StripeLike = {
     checkout: { sessions: { create: async (p) => { created.push(p); return { id: `cs_test_${created.length}`, url: `https://checkout.stripe.test/pay/${created.length}` }; } } },
     prices: { retrieve: async (id) => ({
       id, active: true, currency: "cad",
-      unit_amount: id === "price_reports_monthly" ? 5000 : id === "price_reports_first" ? 10000 : 20000,
+      unit_amount: id === "price_growth_monthly" ? 45000 : id === "price_growth_setup" ? 50000 : 20000,
       recurring: id.includes("monthly") ? { interval: "month", interval_count: 1 } : null, ...price,
     }) },
+    coupons: { retrieve: async (id) => ({ id, valid: true, amount_off: 20000, currency: "cad", duration: "once", ...coupon }) },
     webhooks: { constructEvent: (payload, header, secret) => real.webhooks.constructEvent(payload, header, secret) as never },
   };
   return { client, created };
 }
 
-const ENV_KEYS = ["DRY_RUN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_ONE_TIME", "STRIPE_PRICE_MONTHLY", "MONTHLY_MIN_TERM_MONTHS", "STRIPE_TAX_RATE_ID",
-  "STRIPE_PRICE_REPORTS_MONTHLY", "STRIPE_PRICE_REPORTS_FIRST", "REPORTS_MIN_TERM_MONTHS"];
+const ENV_KEYS = ["DRY_RUN", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "STRIPE_PRICE_ONE_TIME", "STRIPE_TAX_RATE_ID",
+  "STRIPE_PRICE_VISIBILITY_MONTHLY", "STRIPE_PRICE_GROWTH_MONTHLY", "STRIPE_PRICE_GROWTH_SETUP", "STRIPE_COUPON_REPORT_CREDIT"];
 function setEnv(over: Record<string, string | undefined>) {
   for (const [k, v] of Object.entries(over)) {
     if (v === undefined) delete process.env[k];
@@ -46,8 +47,8 @@ function setEnv(over: Record<string, string | undefined>) {
 /** Everything needed for a real checkout: environment and portal both live. */
 async function goLive(over: Record<string, string | undefined> = {}) {
   setEnv({ DRY_RUN: "0", STRIPE_SECRET_KEY: "sk_test_not_a_real_key", STRIPE_WEBHOOK_SECRET: SECRET, STRIPE_PRICE_ONE_TIME: "price_one_time",
-    STRIPE_PRICE_MONTHLY: "price_monthly", MONTHLY_MIN_TERM_MONTHS: "3",
-    STRIPE_PRICE_REPORTS_MONTHLY: "price_reports_monthly", STRIPE_PRICE_REPORTS_FIRST: "price_reports_first", REPORTS_MIN_TERM_MONTHS: "3", ...over });
+    STRIPE_PRICE_VISIBILITY_MONTHLY: "price_visibility_monthly", STRIPE_PRICE_GROWTH_MONTHLY: "price_growth_monthly",
+    STRIPE_PRICE_GROWTH_SETUP: "price_growth_setup", STRIPE_COUPON_REPORT_CREDIT: "coupon_report_credit", ...over });
   await db()`update app_settings set dry_run = false, live_enabled = true where id`;
 }
 
@@ -68,12 +69,12 @@ async function post(ev: unknown, stripe: StripeLike = fakeStripe().client) {
   const payload = JSON.stringify(ev);
   return receiveWebhook(payload, real.webhooks.generateTestHeaderString({ payload, secret: SECRET }), { stripe });
 }
-const session = (id: string, clinicId: string, plan: "report" | "reports" | "monthly", extra: Record<string, unknown> = {}) => ({
+const session = (id: string, clinicId: string, plan: "report" | "visibility" | "growth", extra: Record<string, unknown> = {}) => ({
   id, object: "checkout.session", mode: plan === "report" ? "payment" : "subscription", payment_status: "paid",
   amount_total: 22600, currency: "cad", total_details: { amount_tax: 2600 }, client_reference_id: clinicId,
   customer: "cus_test_1", customer_details: { email: "Owner@MapleGrove.example" },
   payment_intent: plan === "report" ? "pi_test_1" : null, subscription: plan === "report" ? null : "sub_test_1",
-  metadata: { clinic_id: clinicId, plan, ...(plan === "report" ? {} : { min_term_months: "3" }) }, ...extra,
+  metadata: { clinic_id: clinicId, plan, ...(plan === "growth" ? { min_term_months: "6" } : {}) }, ...extra,
 });
 const messages = (type: string) => db()<{ id: string; status: string; to_email: string; subject: string; body_text: string; report_id: string | null; attach_pdf: boolean; dry_run: boolean }[]>`
   select id, status::text, to_email, subject, body_text, report_id, attach_pdf, dry_run from messages where type = ${type} order by created_at`;
@@ -91,9 +92,9 @@ afterAll(closeDb);
 describe("checkout", () => {
   it("refuses in dry run: no session, no order", async () => {
     await seedClinic();
-    setEnv({ STRIPE_SECRET_KEY: "sk_test_x", STRIPE_PRICE_ONE_TIME: "price_one_time", STRIPE_PRICE_MONTHLY: "price_monthly", MONTHLY_MIN_TERM_MONTHS: "3" });
+    setEnv({ STRIPE_SECRET_KEY: "sk_test_x", STRIPE_PRICE_ONE_TIME: "price_one_time", STRIPE_PRICE_VISIBILITY_MONTHLY: "price_visibility_monthly" });
     const s = fakeStripe();
-    for (const plan of ["report", "monthly"] as const) {
+    for (const plan of ["report", "visibility"] as const) {
       const r = await startCheckout(TOKEN, plan, { stripe: s.client });
       expect(r).toMatchObject({ kind: "closed", reason: "dry run" });
     }
@@ -104,7 +105,7 @@ describe("checkout", () => {
     expect(await db()`select 1 from orders`).toHaveLength(0);
   });
 
-  it("refuses when Stripe is not configured, and the full service plan while the minimum term is a placeholder", async () => {
+  it("refuses when Stripe is not configured, and a plan while one of its prices is not set", async () => {
     await seedClinic();
     const s = fakeStripe();
     await goLive({ STRIPE_SECRET_KEY: undefined });
@@ -113,13 +114,16 @@ describe("checkout", () => {
     expect((await checkoutState("report")).reason).toMatch(/WEBHOOK/);
     await goLive({ STRIPE_PRICE_ONE_TIME: undefined });
     expect(await startCheckout(TOKEN, "report", { stripe: s.client })).toMatchObject({ kind: "closed" });
-    await goLive({ MONTHLY_MIN_TERM_MONTHS: "[MINIMUM TERM]" });
-    expect(minTermMonths()).toBeNull();
-    expect(await startCheckout(TOKEN, "monthly", { stripe: s.client })).toMatchObject({ kind: "closed" });
-    expect((await checkoutState("report")).open).toBe(true); // the one-time report does not depend on the term
+    await goLive({ STRIPE_PRICE_GROWTH_SETUP: undefined });
+    expect((await checkoutState("growth")).reason).toMatch(/GROWTH_SETUP/);
+    expect(await startCheckout(TOKEN, "growth", { stripe: s.client })).toMatchObject({ kind: "closed" });
+    expect((await checkoutState("report")).open).toBe(true); // the other plans do not depend on it
+    expect((await checkoutState("visibility")).open).toBe(true);
     expect(s.created).toHaveLength(0);
-    await goLive({ MONTHLY_MIN_TERM_MONTHS: "6 months" });
-    expect(minTermMonths()).toBe(6);
+    // the terms come from the offer, not from a setting
+    expect(minTermMonths("growth")).toBe(6);
+    expect(minTermMonths("visibility")).toBeNull();
+    expect(minTermMonths("report")).toBeNull();
   });
 
   it("creates a payment session and a pending order for the one-time report", async () => {
@@ -141,68 +145,145 @@ describe("checkout", () => {
     expect(orders).toEqual([{ clinic_id: clinicId, kind: "one_time", status: "pending", currency: "cad", stripe_checkout_session_id: "cs_test_1" }]);
   });
 
-  it("creates a subscription session for the full service plan, stating the minimum term", async () => {
+  it("creates a subscription session for Visibility: one monthly price, no minimum term", async () => {
     const { clinicId } = await seedClinic({ superseded: true }); // an old email's link still works
     await goLive();
     const s = fakeStripe();
-    const r = await startCheckout(TOKEN, "monthly", { stripe: s.client });
+    const r = await startCheckout(TOKEN, "visibility", { stripe: s.client });
     expect(r.kind).toBe("redirect");
     expect(s.created[0]).toMatchObject({
       mode: "subscription",
-      line_items: [{ price: "price_monthly", quantity: 1 }],
-      subscription_data: { metadata: { clinic_id: clinicId, plan: "monthly", min_term_months: "3" } },
-      custom_text: { submit: { message: "Full service plan. Minimum term 3 months. Renews each month until cancelled." } },
+      line_items: [{ price: "price_visibility_monthly", quantity: 1 }],
+      subscription_data: { metadata: { clinic_id: clinicId, plan: "visibility" } },
+      custom_text: { submit: { message: "Visibility. Month to month. Renews each month until cancelled." } },
     });
-    expect(await db()`select kind, plan, status from orders`).toEqual([{ kind: "subscription", plan: "monthly", status: "pending" }]);
+    expect(s.created[0].metadata.min_term_months).toBeUndefined();
+    expect(s.created[0].discounts).toBeUndefined();
+    expect(await db()`select kind, plan, status, credit_cents from orders`).toEqual([{ kind: "subscription", plan: "visibility", status: "pending", credit_cents: 0 }]);
   });
 
-  it("monthly reports: 50 a month plus 100 on the first invoice, with its own minimum term", async () => {
+  it("Growth: 450 a month plus the 500 setup on the first invoice, with a 6-month minimum", async () => {
     const { clinicId } = await seedClinic();
-    await goLive({ MONTHLY_MIN_TERM_MONTHS: "12", REPORTS_MIN_TERM_MONTHS: "3", STRIPE_TAX_RATE_ID: "txr_hst" });
-    expect(minTermMonths("monthly")).toBe(12);
-    expect(minTermMonths("reports")).toBe(3);
+    await goLive({ STRIPE_TAX_RATE_ID: "txr_hst" });
     const s = fakeStripe();
-    const r = await startCheckout(TOKEN, "reports", { stripe: s.client });
+    const r = await startCheckout(TOKEN, "growth", { stripe: s.client, expectCents: 95000 });
     expect(r.kind).toBe("redirect");
     expect(s.created[0]).toMatchObject({
       mode: "subscription",
       line_items: [
-        { price: "price_reports_monthly", quantity: 1, tax_rates: ["txr_hst"] },
-        { price: "price_reports_first", quantity: 1, tax_rates: ["txr_hst"] },
+        { price: "price_growth_monthly", quantity: 1, tax_rates: ["txr_hst"] },
+        { price: "price_growth_setup", quantity: 1, tax_rates: ["txr_hst"] },
       ],
-      subscription_data: { metadata: { clinic_id: clinicId, plan: "reports", min_term_months: "3" } },
-      custom_text: { submit: { message: "Monthly reports. Minimum term 3 months. Renews each month until cancelled." } },
+      subscription_data: { metadata: { clinic_id: clinicId, plan: "growth", min_term_months: "6" } },
+      custom_text: { submit: { message: "Growth. Minimum term 6 months, then month to month. Renews each month until cancelled." } },
     });
-    expect(await db()`select kind, plan, status from orders`).toEqual([{ kind: "subscription", plan: "reports", status: "pending" }]);
-    // closed while its first-month price is missing; refused when a price is not the published one
-    await goLive({ STRIPE_PRICE_REPORTS_FIRST: undefined });
-    expect((await checkoutState("reports")).open).toBe(false);
-    await goLive();
+    expect(await db()`select kind, plan, status from orders`).toEqual([{ kind: "subscription", plan: "growth", status: "pending" }]);
+    // refused when a price is not the published one (here the setup is charged as 200)
     const wrong = fakeStripe({ unit_amount: 20000 });
-    expect((await startCheckout(TOKEN, "reports", { stripe: wrong.client })).kind).toBe("closed");
+    expect((await startCheckout(TOKEN, "growth", { stripe: wrong.client })).kind).toBe("closed");
     expect(wrong.created).toHaveLength(0);
   });
 
-  it("monthly reports paid: a reports subscription, no intake form or onboarding task, its own receipt and delivery", async () => {
+  it("Visibility paid: a subscription with no minimum term, an onboarding task but no intake form, its own receipt", async () => {
     const { clinicId } = await seedClinic();
     const sql = db();
     await goLive();
     const s = fakeStripe();
-    await startCheckout(TOKEN, "reports", { stripe: s.client });
-    await post(event("checkout.session.completed", session("cs_test_1", clinicId, "reports", { amount_total: 16950, total_details: { amount_tax: 1950 } })));
+    await startCheckout(TOKEN, "visibility", { stripe: s.client });
+    await post(event("checkout.session.completed", session("cs_test_1", clinicId, "visibility", { amount_total: 22600, total_details: { amount_tax: 2600 } })));
     const [sub] = await sql`select plan, status, min_term_end from subscriptions`;
-    expect(sub).toMatchObject({ plan: "reports", status: "active" });
-    expect(sub.min_term_end).not.toBeNull();
+    expect(sub).toMatchObject({ plan: "visibility", status: "active", min_term_end: null });
     expect(await sql`select 1 from intake_forms`).toHaveLength(0);
-    expect(await sql`select 1 from owner_tasks where kind = 'onboarding'`).toHaveLength(0);
+    const tasks = await sql`select title, body from owner_tasks where kind = 'onboarding'`;
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe("Onboard Maple Grove Dental (Visibility)");
+    expect(tasks[0].body).toMatch(/access to the clinic's website/);
     const [rcpt] = await messages("payment_receipt");
-    expect(rcpt.subject).toBe("Receipt: In The Answer monthly reports");
-    expect(rcpt.body_text).toContain("Item: Monthly reports");
-    expect(rcpt.body_text).toContain("minimum term is 3 months");
+    expect(rcpt.subject).toBe("Receipt: In The Answer Visibility plan");
+    expect(rcpt.body_text).toContain("Item: Visibility plan, 200 CAD billed each month by card");
+    expect(rcpt.body_text).toContain("It runs month to month.");
+    expect(rcpt.body_text).not.toContain("minimum term");
     expect(await jobs("build_full_report")).toHaveLength(1);
-    // nothing more can be bought while the plan runs; moving up is arranged by email
-    expect(await alreadyPurchased(clinicId, "report")).toBe("reports");
-    expect(await alreadyPurchased(clinicId, "monthly")).toBe("reports");
+    // nothing more can be bought online while the plan runs; moving up is arranged by email
+    expect(await alreadyPurchased(clinicId, "report")).toBe("visibility");
+    expect(await alreadyPurchased(clinicId, "growth")).toBe("visibility");
+  });
+
+  it("credits the full report against the first month of a plan started within 30 days, once", async () => {
+    const { clinicId } = await seedClinic();
+    const sql = db();
+    await goLive();
+    const [paid] = await sql<{ id: string }[]>`
+      insert into orders (clinic_id, kind, plan, status, paid_at) values (${clinicId}, 'one_time', 'report', 'paid', now() - interval '10 days') returning id`;
+    expect(await reportCredit(clinicId)).toEqual({ orderId: paid.id, cents: 20000 });
+    expect(await dueToday(clinicId, "growth")).toMatchObject({ cents: 75000 });
+    expect(await dueToday(clinicId, "visibility")).toMatchObject({ cents: 0 });
+    expect((await dueToday(clinicId, "report")).credit).toBeNull();
+
+    // the page showed the full price (opened before the report was paid): nothing is created, the page is shown again
+    const s = fakeStripe();
+    expect(await startCheckout(TOKEN, "growth", { stripe: s.client, expectCents: 95000 })).toEqual({ kind: "changed" });
+    expect(s.created).toHaveLength(0);
+
+    const r = await startCheckout(TOKEN, "growth", { stripe: s.client, expectCents: 75000 });
+    expect(r.kind).toBe("redirect");
+    expect(s.created[0].discounts).toEqual([{ coupon: "coupon_report_credit" }]);
+    expect(s.created[0].metadata.credit_order_id).toBe(paid.id);
+    const [order] = await sql`select credit_cents, credit_order_id from orders where kind = 'subscription'`;
+    expect(order).toEqual({ credit_cents: 20000, credit_order_id: paid.id });
+
+    // paid: the receipt shows the credit, and the same report is never credited twice
+    await post(event("checkout.session.completed", session("cs_test_1", clinicId, "growth", { amount_total: 84750, total_details: { amount_tax: 9750, amount_discount: 20000 } })));
+    const [rcpt] = await messages("payment_receipt");
+    expect(rcpt.body_text).toContain("Item: Growth plan, 450 CAD billed each month by card (this first payment includes the 500 CAD setup)");
+    expect(rcpt.body_text).toContain("Credit: 200.00 CAD, the price of the full report you bought, taken off this first payment");
+    expect(rcpt.body_text).toMatch(/minimum term is 6 months, to .*; after that it runs month to month\./);
+    expect(await reportCredit(clinicId)).toBeNull();
+  });
+
+  it("gives no credit for an old, refunded or missing report, and refuses to charge full price when the coupon is not set up", async () => {
+    const { clinicId } = await seedClinic();
+    const sql = db();
+    await goLive();
+    expect(await reportCredit(clinicId)).toBeNull();
+    const [o] = await sql<{ id: string }[]>`
+      insert into orders (clinic_id, kind, plan, status, paid_at) values (${clinicId}, 'one_time', 'report', 'paid', now() - interval '31 days') returning id`;
+    expect(await reportCredit(clinicId)).toBeNull();
+    await sql`update orders set paid_at = now() - interval '2 days', status = 'refunded' where id = ${o.id}`;
+    expect(await reportCredit(clinicId)).toBeNull();
+    await sql`update orders set status = 'paid' where id = ${o.id}`;
+    expect(await reportCredit(clinicId)).not.toBeNull();
+
+    // the credit is published: a clinic that qualifies is never charged the full amount
+    await goLive({ STRIPE_COUPON_REPORT_CREDIT: undefined });
+    const s = fakeStripe();
+    expect(await startCheckout(TOKEN, "visibility", { stripe: s.client })).toMatchObject({ kind: "closed" });
+    await goLive();
+    const wrongCoupon = fakeStripe({}, { amount_off: 5000 });
+    expect(await startCheckout(TOKEN, "visibility", { stripe: wrongCoupon.client })).toMatchObject({ kind: "closed" });
+    const forever = fakeStripe({}, { duration: "forever" });
+    expect(await startCheckout(TOKEN, "visibility", { stripe: forever.client })).toMatchObject({ kind: "closed" });
+    expect(s.created.length + wrongCoupon.created.length + forever.created.length).toBe(0);
+    expect((await messages("owner_alert")).map((m) => m.subject)).toEqual(expect.arrayContaining([
+      "Checkout refused: the report credit is not set up", "Checkout refused: Stripe coupon does not match",
+    ]));
+  });
+
+  it("takes a request for a quote for the plan that is never bought online: a task and an alert, no payment", async () => {
+    const { clinicId } = await seedClinic();
+    const sql = db();
+    expect(await requestQuote("tok_unknown_000000000000", {})).toEqual({ ok: false, reason: "not_found" });
+    expect(await requestQuote(TOKEN, { phone: "705-555-0142", bestTime: "Tuesday after 2", note: "Connect our booking\nsystem" })).toEqual({ ok: true });
+    const tasks = await sql`select kind, clinic_id, title, body, status from owner_tasks`;
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]).toMatchObject({ kind: "quote_request", clinic_id: clinicId, status: "open", title: "Quote request: Maple Grove Dental (Transformation)" });
+    expect(tasks[0].body).toContain("Phone: 705-555-0142");
+    expect(tasks[0].body).toContain("What they wrote: Connect our booking system");
+    // asking again while the request is open adds nothing
+    expect(await requestQuote(TOKEN, { phone: "705-555-0142" })).toEqual({ ok: true });
+    expect(await sql`select 1 from owner_tasks`).toHaveLength(1);
+    expect((await messages("owner_alert")).filter((m) => m.subject.startsWith("Quote request"))).toHaveLength(1);
+    expect(await sql`select 1 from orders`).toHaveLength(0);
   });
 
   it("does not accept a sample, an unverified draft or an unknown token", async () => {
@@ -225,12 +306,18 @@ describe("checkout", () => {
     const sql = db();
     await sql`insert into orders (clinic_id, kind, status, paid_at) values (${clinicId}, 'one_time', 'paid', now())`;
     expect(await startCheckout(TOKEN, "report", { stripe: s.client })).toEqual({ kind: "already", has: "report" });
-    expect(await alreadyPurchased(clinicId, "monthly")).toBeNull(); // the report buyer may still move to the plan
-    await sql`insert into subscriptions (clinic_id, stripe_subscription_id, status) values (${clinicId}, 'sub_x', 'active')`;
-    expect(await startCheckout(TOKEN, "monthly", { stripe: s.client })).toEqual({ kind: "already", has: "monthly" });
-    expect(await startCheckout(TOKEN, "report", { stripe: s.client })).toEqual({ kind: "already", has: "monthly" });
+    expect(await alreadyPurchased(clinicId, "growth")).toBeNull(); // the report buyer may still move to a plan
+    await sql`insert into subscriptions (clinic_id, stripe_subscription_id, plan, status) values (${clinicId}, 'sub_x', 'growth', 'active')`;
+    expect(await startCheckout(TOKEN, "growth", { stripe: s.client })).toEqual({ kind: "already", has: "growth" });
+    expect(await startCheckout(TOKEN, "report", { stripe: s.client })).toEqual({ kind: "already", has: "growth" });
+    // a subscription from before the plans changed still blocks a second purchase, under its old name
+    await sql`update subscriptions set plan = 'monthly'`;
+    expect(await startCheckout(TOKEN, "visibility", { stripe: s.client })).toEqual({ kind: "already", has: "monthly" });
+    // one made by hand in Stripe that names no plan counts as the largest
+    await sql`update subscriptions set plan = null`;
+    expect(await alreadyPurchased(clinicId, "growth")).toBe("transformation");
     await sql`update subscriptions set status = 'canceled'`;
-    expect(await alreadyPurchased(clinicId, "monthly")).toBeNull();
+    expect(await alreadyPurchased(clinicId, "growth")).toBeNull();
     expect(s.created).toHaveLength(0);
   });
 
@@ -242,7 +329,7 @@ describe("checkout", () => {
     expect(s.created).toHaveLength(0);
     expect(await messages("owner_alert")).toHaveLength(1);
     const wrongAmount = fakeStripe({ unit_amount: 2000 });
-    expect(await startCheckout(TOKEN, "monthly", { stripe: wrongAmount.client })).toMatchObject({ kind: "closed" });
+    expect(await startCheckout(TOKEN, "visibility", { stripe: wrongAmount.client })).toMatchObject({ kind: "closed" });
   });
 
   it("limits how many sessions one clinic can open in an hour", async () => {
@@ -336,12 +423,11 @@ describe("stripe webhook", () => {
     expect((await sql`select status::text from clinics where id = ${clinicId}`)[0].status).toBe("closed");
   });
 
-  it("checkout.session.completed, monthly: subscription with minimum term, intake form, onboarding task, receipt, fulfilment", async () => {
+  it("checkout.session.completed, Growth: subscription with minimum term, intake form, onboarding task, receipt, fulfilment", async () => {
     const { clinicId } = await seedClinic();
     const sql = db();
-    setEnv({ MONTHLY_MIN_TERM_MONTHS: "3" });
     await sql`insert into orders (clinic_id, kind, stripe_checkout_session_id, status) values (${clinicId}, 'subscription', 'cs_m', 'pending')`;
-    const ev = event("checkout.session.completed", session("cs_m", clinicId, "monthly"));
+    const ev = event("checkout.session.completed", session("cs_m", clinicId, "growth"));
     await post(ev);
     await post(ev);
 
@@ -352,7 +438,7 @@ describe("stripe webhook", () => {
     expect(subs).toHaveLength(1);
     expect(subs[0]).toMatchObject({ clinic_id: clinicId, stripe_customer_id: "cus_test_1", status: "active" });
     const term = new Date(o.paid_at as Date);
-    term.setUTCMonth(term.getUTCMonth() + 3);
+    term.setUTCMonth(term.getUTCMonth() + 6);
     expect(Math.abs((subs[0].min_term_end as Date).getTime() - term.getTime())).toBeLessThan(2 * 86400e3);
 
     const forms = await sql`select token, order_id, submitted_at from intake_forms`;
@@ -362,12 +448,12 @@ describe("stripe webhook", () => {
     expect(tasks).toEqual([{ kind: "onboarding", status: "open", clinic_id: clinicId, order_id: o.id }]);
     const receipts = await messages("payment_receipt");
     expect(receipts).toHaveLength(1);
-    expect(receipts[0].body_text).toMatch(/renews each month until it is cancelled\. The minimum term is 3 months, to /);
+    expect(receipts[0].body_text).toMatch(/renews each month until it is cancelled\. The minimum term is 6 months, to /);
     expect(await jobs("build_full_report")).toHaveLength(1);
 
     // later subscription events keep the row current; an older event does not undo a newer one
     const sub = (status: string, extra: Record<string, unknown> = {}) => ({ id: "sub_test_1", object: "subscription", status, customer: "cus_test_1",
-      metadata: { clinic_id: clinicId, min_term_months: "3" }, items: { data: [{ current_period_end: 1797100000 }] }, cancel_at: null, canceled_at: null, ...extra });
+      metadata: { clinic_id: clinicId, plan: "growth", min_term_months: "6" }, items: { data: [{ current_period_end: 1797100000 }] }, cancel_at: null, canceled_at: null, ...extra });
     await post(event("customer.subscription.created", sub("incomplete")));
     expect((await sql`select status from subscriptions`)[0].status).toBe("active");
     await post(event("invoice.paid", { id: "in_1", parent: { subscription_details: { subscription: "sub_test_1" } }, lines: { data: [{ period: { end: 1797100000 } }] } }));
@@ -383,9 +469,9 @@ describe("stripe webhook", () => {
     const [ended] = await sql`select status, canceled_at, min_term_end from subscriptions`;
     expect(ended.status).toBe("canceled");
     expect((ended.canceled_at as Date).getTime()).toBe(1794700000 * 1000);
-    const alert = (await messages("owner_alert")).find((m) => m.subject === "Full service plan ended: Maple Grove Dental");
+    const alert = (await messages("owner_alert")).find((m) => m.subject === "Growth ended: Maple Grove Dental");
     expect(alert?.body_text).toMatch(/before the end of the minimum term/);
-    expect(await alreadyPurchased(clinicId, "monthly")).toBeNull();
+    expect(await alreadyPurchased(clinicId, "growth")).toBeNull();
   });
 
   it("rebuilds a missing order from the session metadata, and waits for a delayed payment", async () => {
@@ -455,7 +541,7 @@ describe("stripe webhook", () => {
 describe("intake form", () => {
   async function seedIntake() {
     const { clinicId } = await seedClinic();
-    await post(event("checkout.session.completed", session("cs_m", clinicId, "monthly")));
+    await post(event("checkout.session.completed", session("cs_m", clinicId, "growth")));
     const [f] = await db()<{ token: string }[]>`select token from intake_forms`;
     return { clinicId, token: f.token };
   }
@@ -543,7 +629,7 @@ describe("build_full_report", () => {
     await sql`insert into scores (clinic_id, test_run_id, audit_id, recommended, listed_only, not_named, total, confirmed_findings, qualifies, reason)
               values (${clinicId}, ${run.id}, ${audit.id}, 1, 0, 5, 6, 3, true, 'ok')`;
   }
-  async function paidOrder(plan: "report" | "reports" | "monthly" = "report") {
+  async function paidOrder(plan: "report" | "visibility" | "growth" = "report") {
     const { clinicId } = await seedClinic();
     await seedEvidence(clinicId);
     await post(event("checkout.session.completed", session("cs_a", clinicId, plan)));
@@ -571,7 +657,7 @@ describe("build_full_report", () => {
     expect(rep.data.findings.map((f: { key: string }) => f.key)).toEqual(["hours_conflict", "outdated_notices", "languages"]);
     expect(rep.html).toContain("Two different sets of hours appear on your site.");
     expect(rep.html).not.toContain("You do not publish fees"); // could not verify: never stated
-    expect(rep.html).toContain(`/buy/${TOKEN}/monthly`);
+    expect(rep.html).not.toContain(`/buy/${TOKEN}/monthly`); // no link to a retired plan
     expect((await sql`select report_id from orders where id = ${orderId}`)[0].report_id).toBe(rep.id);
 
     const mails = await messages("full_report_delivery");
@@ -612,29 +698,41 @@ describe("build_full_report", () => {
     expect(await jobs("send_message")).toHaveLength(1); // the receipt only
   });
 
-  it("full service plan: the first delivery carries the full report and the intake link", async () => {
-    const { orderId } = await paidOrder("monthly");
+  it("Growth: the first delivery carries the full report and the intake link", async () => {
+    const { orderId } = await paidOrder("growth");
     const r = await buildAndDeliverFullReport(orderId, deps);
     expect(r).toMatchObject({ built: true });
     const [f] = await db()<{ token: string }[]>`select token from intake_forms`;
     const [m] = await messages("full_report_delivery");
-    expect(m.subject).toBe("Welcome to the full service plan: Maple Grove Dental");
+    expect(m.subject).toBe("Welcome to the Growth plan: Maple Grove Dental");
     expect(m.body_text).toContain(`https://intheanswer.test/intake/${f.token}`);
     expect(m.body_text).toContain("Please do not put passwords in the form.");
     expect(m.attach_pdf).toBe(true);
-    const [rep] = await db()`select html from reports where kind = 'full'`;
-    expect(rep.html).not.toContain("Start the full service plan");
   });
 
-  it("monthly reports: the first delivery is the full report, with no intake form and the full service offer kept", async () => {
-    const { orderId } = await paidOrder("reports");
+  it("Visibility: the first delivery is the full report, with no intake form", async () => {
+    const { orderId } = await paidOrder("visibility");
     const r = await buildAndDeliverFullReport(orderId, deps);
     expect(r).toMatchObject({ built: true });
     const [m] = await messages("full_report_delivery");
-    expect(m.subject).toBe("Your first monthly report: Maple Grove Dental");
-    expect(m.body_text).toContain("Welcome to monthly reports.");
+    expect(m.subject).toBe("Welcome to the Visibility plan: Maple Grove Dental");
+    expect(m.body_text).toContain("Welcome to the Visibility plan.");
+    expect(m.body_text).toContain("arrange access to your website");
     expect(m.body_text).not.toContain("/intake/");
-    const [rep] = await db()`select html from reports where kind = 'full'`;
-    expect(rep.html).toContain("Start the full service plan");
+  });
+
+  it("a report buyer who then starts a plan with the credit is not sent a second full report", async () => {
+    const { clinicId, orderId } = await paidOrder("report");
+    const sql = db();
+    const first = await buildAndDeliverFullReport(orderId, deps);
+    expect(first).toMatchObject({ built: true });
+    await post(event("checkout.session.completed", session("cs_plan", clinicId, "visibility", { subscription: "sub_test_2", metadata: { clinic_id: clinicId, plan: "visibility", credit_order_id: orderId }, total_details: { amount_tax: 0, amount_discount: 20000 }, amount_total: 0 })));
+    const [plan] = await sql<{ id: string; credit_order_id: string; credit_cents: number }[]>`select id, credit_order_id, credit_cents from orders where kind = 'subscription'`;
+    expect(plan).toMatchObject({ credit_order_id: orderId, credit_cents: 20000 });
+    const again = await buildAndDeliverFullReport(plan.id, deps);
+    expect(again).toMatchObject({ built: false, reportId: first.reportId });
+    expect(await sql`select 1 from reports where kind = 'full'`).toHaveLength(1);
+    const welcome = (await messages("full_report_delivery")).find((m) => m.subject.startsWith("Welcome"));
+    expect(welcome?.body_text).toContain("the one you already have");
   });
 });

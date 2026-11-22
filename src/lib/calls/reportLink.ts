@@ -1,4 +1,4 @@
-import { BRAND, COPILOT_NAME, copilotAvatarSvg } from "../brand";
+import { BRAND, VOICE_NAME, copilotAvatarSvg } from "../brand";
 import { esc } from "../reports/html";
 import type { CallOffer } from "./request";
 
@@ -21,7 +21,7 @@ export function callLinkHtml(reportToken: string, offer: CallOffer = { phone: nu
   <div style="display:flex;gap:12px;align-items:flex-start;flex:1 1 320px">
     <span style="flex:none;display:flex">${copilotAvatarSvg({ size: 36 })}</span>
     <div><strong id="ita-call-h" style="display:block;font-size:17px;line-height:1.3">Would you rather talk it through?</strong>
-    <span style="color:${BRAND.muted}">${esc(COPILOT_NAME)}, an AI assistant, can phone you and walk you through this report. You choose the number and nothing is dialled unless you ask.</span></div>
+    <span style="color:${BRAND.muted}">${esc(VOICE_NAME)}, our AI assistant, can phone you and walk you through this report. You choose the number and nothing is dialled unless you ask.</span></div>
   </div>
   <a href="/call/${esc(reportToken)}" style="display:inline-flex;align-items:center;min-height:48px;padding:0 20px;border-radius:8px;background:${BRAND.blue};color:#fff;font-weight:600;text-decoration:none">Have it call me</a>${phoneUs}
 </div>

@@ -7,7 +7,7 @@ import { hashIp } from "../selfServe";
 import { randomToken } from "../tokens";
 import { nextWindowStart } from "../sending/rules";
 import { inSendWindow } from "../time";
-import { COPILOT_NAME } from "../brand";
+import { VOICE_NAME } from "../brand";
 import { displayPhone, normalizeCanadianPhone } from "./phone";
 import { isPhoneSuppressed } from "./rules";
 
@@ -24,7 +24,7 @@ const PER_IP_PER_DAY = 5;
 
 /** The words a clinic agrees to on the request page. Stored with each consent, so the evidence is the text they saw. */
 export function consentWording(): string {
-  return `I am asking In The Answer to phone me at this number about this report. I understand that the call is made by ${COPILOT_NAME}, an AI assistant and not a person, and that the call is transcribed so the In The Answer team can review it.`;
+  return `I am asking In The Answer to phone me at this number about this report. I understand that the call is made by ${VOICE_NAME}, an AI assistant and not a person, and that the call is transcribed so the In The Answer team can review it.`;
 }
 
 export interface CallPage {

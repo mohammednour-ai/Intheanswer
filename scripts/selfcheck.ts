@@ -11,6 +11,7 @@ import { checkAddressOnHome, checkAiCrawlers, checkContactEmail, checkMetaDescri
 import * as C from "../src/lib/sitetest/checks";
 import { findContacts } from "../src/lib/pipeline/contact";
 import { launchBrowser, measureMobile, runAxe } from "../src/lib/sitetest/browser";
+import { TIERS, cad } from "../src/lib/offer";
 
 const BASE = process.env.BASE ?? "http://localhost:3200";
 const PUBLIC = "https://intheanswer.ca";
@@ -42,7 +43,8 @@ async function main() {
     checkMetaDescription(site), checkStructuredData(site), checkAddressOnHome(site),
     checkContactEmail(site, contact.primary), checkAiCrawlers(site, robotsTxt),
     fact("hours", /Monday to Friday, 9:00 am to 5:00 pm/, "hours stated in text"),
-    fact("fees", /200 CAD/, "prices stated in text"),
+    // the published prices of the monthly plans, as src/lib/offer.ts states them (digits and "CAD": safe in a pattern)
+    fact("fees", new RegExp(`^(?=[\\s\\S]*${cad(TIERS.visibility.monthlyCents)})(?=[\\s\\S]*${cad(TIERS.growth.monthlyCents)})`), "prices stated in text"),
     fact("practitioners", /is run by /, "who runs the service is named"),
     fact("languages", /Service in English/, "language stated"),
     fact("areas_served", /across Ontario/, "area served stated"),

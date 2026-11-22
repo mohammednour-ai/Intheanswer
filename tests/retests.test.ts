@@ -6,6 +6,8 @@ import "@/lib/pipeline/score";
 import "@/lib/schedule";
 import { deliverMonthlyReport, deliverRetestUpgrade } from "@/lib/retests/jobs";
 import { buildComparisonData, verifyComparison } from "@/lib/retests/report";
+import { OFFER_UPGRADE_MARKER } from "@/lib/reports/offerSection";
+import { emailOfferLines } from "@/lib/offer";
 import { resetData, makeClinic } from "./helpers";
 
 const at = (ymd: string, hhmm = "10:00") => new Date(`${ymd}T${hhmm}:00-05:00`);
@@ -236,7 +238,7 @@ describe("retest message after a one-time purchase", () => {
     return (await sql<{ id: string }[]>`insert into orders ${sql(row as never)} returning id`)[0].id;
   };
 
-  it("sends the before and after with the full service plan link, once", async () => {
+  it("sends the before and after with the monthly plans and their checkout links, once", async () => {
     const sql = db();
     const f = await fixture();
     const o = await order(f.clinic, f.full);
@@ -247,10 +249,18 @@ describe("retest message after a one-time purchase", () => {
     expect(msg.attach_pdf).toBe(false);
     expect(msg.body_text).toContain("was recommended in 1 of 3 answers");
     expect(msg.body_text).toContain("At the previous test on October 5, 2026 it was recommended in 1 of 3.");
-    expect(msg.body_text).toContain("https://intheanswer.test/buy/teaser-token-0000001/monthly");
-    const [rep] = await sql`select kind::text, previous_report_id, data from reports where id = ${r.reportId}`;
+    // the plans above the report this clinic bought, as published, each with the clinic's own checkout link
+    const plans = emailOfferLines({ buyBase: "https://intheanswer.test/buy/teaser-token-0000001", has: "report" });
+    expect(plans.map((l) => l.split(":")[0])).toEqual(["- Visibility", "- Growth"]);
+    expect(msg.body_text).toContain(plans.join("\n"));
+    expect(msg.body_text).not.toMatch(/full service plan|\/buy\/[^/]+\/(monthly|reports|report)\b/i);
+    expect(msg.flags.filter((x: { code: string }) => x.code.startsWith("language_"))).toEqual([]); // the plan lines pass the wording rules
+    const [rep] = await sql`select kind::text, previous_report_id, data, html from reports where id = ${r.reportId}`;
     expect(rep).toMatchObject({ kind: "retest", previous_report_id: f.full });
-    expect(rep.data.offer.monthlyUrl).toBe("https://intheanswer.test/buy/teaser-token-0000001/monthly");
+    // the stored report holds no plan, price or link: only the place they are written into when it is shown
+    expect(rep.html).toContain(OFFER_UPGRADE_MARKER);
+    expect(rep.html).not.toMatch(/\d+ CAD|\/buy\/|full service plan/i);
+    expect(rep.data.offer ?? null).toBeNull();
     const [done] = await sql`select retest_done_at, retest_note from orders where id = ${o}`;
     expect(done.retest_done_at).not.toBeNull();
 
@@ -271,6 +281,9 @@ describe("retest message after a one-time purchase", () => {
     const [msg] = await sql`select status::text, review_reason, body_text from messages where id = ${r.message}`;
     expect(msg.status).toBe("pending_review");
     expect(msg.review_reason).toMatch(/no teaser report/);
-    expect(msg.body_text).toContain("https://intheanswer.test/pricing");
+    // without a teaser there is no checkout link to give: the plans are still stated, with the pricing page
+    expect(msg.body_text).toContain(emailOfferLines({ has: "report" }).join("\n"));
+    expect(msg.body_text).toContain("Plans and terms: https://intheanswer.test/pricing");
+    expect(msg.body_text).not.toContain("/buy/");
   });
 });

@@ -18,6 +18,8 @@ import { runSiteTest, storeSiteTest } from "../src/lib/sitetest/run";
 import { proposeForClinic } from "../src/lib/pages/jobs";
 import { buildFullReportData, renderFullReport } from "../src/lib/reports/fullReport";
 import { htmlToPdf } from "../src/lib/reports/pdf";
+import { fillOffer } from "../src/lib/reports/offerSection";
+import { offerContextFor } from "../src/lib/reports/offerContext";
 import { currentRunLabel } from "../src/lib/pipeline/runs";
 import fs from "node:fs/promises";
 import { findContacts } from "../src/lib/pipeline/contact";
@@ -136,7 +138,8 @@ async function services(domain: string) {
     console.log(`   placeholders: ${p.firstDraft.placeholders.length}; JSON-LD: ${p.firstDraft.jsonLd["@type"]}`);
   }
   const data = await buildFullReportData(c.id);
-  const html = renderFullReport(data, { web: false });
+  // a preview of what the clinic would see: the plans above the report are written in, as on the served page
+  const html = fillOffer(renderFullReport(data, { web: false }), await offerContextFor({ clinicId: c.id }));
   await fs.mkdir("output", { recursive: true });
   const file = `output/full-${domain}`;
   await fs.writeFile(`${file}.html`, html);

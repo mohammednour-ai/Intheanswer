@@ -30,8 +30,10 @@ const schema = z.object({
   OWNER_MAILING_ADDRESS: z.string().default("[MAILING ADDRESS]"),
   OWNER_PHONE: z.string().default("[PHONE]"),
   OWNER_CONTACT_EMAIL: z.string().default("hello@intheanswer.ca"),
-  MONTHLY_MIN_TERM_MONTHS: z.string().default("[MINIMUM TERM]"), // full service plan
-  REPORTS_MIN_TERM_MONTHS: z.string().default("3"),              // monthly reports plan
+  // Deprecated: the terms of the plans are stated in src/lib/offer.ts. Kept only until the public pages
+  // that still read them have moved to the offer; then these two and legacyTerms() go.
+  MONTHLY_MIN_TERM_MONTHS: z.string().default("12"),
+  REPORTS_MIN_TERM_MONTHS: z.string().default("3"),
 
   // Sending
   MAIL_FROM: z.string().default("hello@mail.intheanswer.ca"),
@@ -59,9 +61,11 @@ const schema = z.object({
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_ONE_TIME: z.string().optional(),
-  STRIPE_PRICE_MONTHLY: z.string().optional(),
-  STRIPE_PRICE_REPORTS_MONTHLY: z.string().optional(), // 50 CAD / month
-  STRIPE_PRICE_REPORTS_FIRST: z.string().optional(),   // 100 CAD one time, added to the first month (150 in total)
+  // The amounts are stated in src/lib/offer.ts; each Stripe price is checked against it before a checkout is created.
+  STRIPE_PRICE_VISIBILITY_MONTHLY: z.string().optional(), // Visibility, per month
+  STRIPE_PRICE_GROWTH_MONTHLY: z.string().optional(),     // Growth, per month
+  STRIPE_PRICE_GROWTH_SETUP: z.string().optional(),       // Growth setup, one time, added to the first invoice
+  STRIPE_COUPON_REPORT_CREDIT: z.string().optional(),     // coupon: the full report's price off, once (the 30-day report credit)
   STRIPE_TAX_RATE_ID: z.string().optional(), // HST tax rate (txr_...), added to every checkout when set
 
   // Phone agent (Twilio Programmable Voice). Calls stay off until all three are set
@@ -130,11 +134,6 @@ export function isEnvDryRun(): boolean {
 
 export const OWNER_PLACEHOLDER_RE = /\[[A-Z][A-Z ,.]+\]/;
 
-/** "12" reads as "12 months"; anything else (a placeholder, "12 months") is shown as written. */
-function termLabel(raw: string): string {
-  const t = raw.trim();
-  return /^\d{1,2}$/.test(t) ? (t === "1" ? "1 month" : `${t} months`) : t;
-}
 
 /** Whether HST is charged on top of the prices (only when a tax rate is configured, i.e. when registered). */
 export function chargesHst(): boolean {
@@ -146,20 +145,33 @@ export function priceNote(): string {
   return chargesHst() ? "Prices are in Canadian dollars, plus HST." : "Prices are in Canadian dollars.";
 }
 
+/** "12" reads as "12 months"; anything else is shown as written. */
+function termLabel(raw: string): string {
+  const t = raw.trim();
+  return /^\d{1,2}$/.test(t) ? (t === "1" ? "1 month" : `${t} months`) : t;
+}
+
+/** Deprecated: the terms of the retired plans, for pages not yet moved to src/lib/offer.ts. Not an owner detail. */
+function legacyTerms() {
+  const e = env();
+  return {
+    minTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS),
+    reportsMinTerm: termLabel(e.REPORTS_MIN_TERM_MONTHS),
+    contractTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS).replace(/^(\d+) months?$/, "$1-month"),
+  };
+}
+
 /** Owner details that must be filled before any live send. */
 export function ownerDetails() {
   const e = env();
   return {
+    ...legacyTerms(),
     name: e.OWNER_NAME,
     title: e.OWNER_TITLE,
     businessName: e.OWNER_BUSINESS_NAME,
     mailingAddress: e.OWNER_MAILING_ADDRESS,
     phone: e.OWNER_PHONE,
     email: e.OWNER_CONTACT_EMAIL,
-    minTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS),
-    reportsMinTerm: termLabel(e.REPORTS_MIN_TERM_MONTHS),
-    /** The full service term as an adjective: "12-month" (a placeholder is shown as written). */
-    contractTerm: termLabel(e.MONTHLY_MIN_TERM_MONTHS).replace(/^(\d+) months?$/, "$1-month"),
   };
 }
 

@@ -5,7 +5,8 @@ import { queueMessage, queueOwnerMail, signature } from "../sending/outbox";
 import { randomToken } from "../tokens";
 import { formatLongDate } from "../time";
 import { LIVE_SUBSCRIPTION } from "./checkout";
-import { isSubscriptionPlan, minTermMonths, minTermText, stripeClient, PLAN_NAMES, type Plan, type StripeEventLike, type StripeLike } from "./stripe";
+import { isPlan, isSubscriptionPlan, minTermMonths, minTermText, stripeClient, type Plan, type StripeEventLike, type StripeLike } from "./stripe";
+import { LEGACY_PLAN, TIERS, cad, isSubscriptionTier, planName } from "../offer";
 
 /**
  * Stripe webhook events. Every event is stored once (its id is the key) and
@@ -148,9 +149,15 @@ async function checkoutCompleted(ev: StripeEventLike): Promise<void> {
   if (!sessionId) return;
   const meta = obj(s.metadata);
   const metaPlan = str(meta.plan);
-  // the plan named at checkout; a session without one is read from its mode
-  const sessionPlan: Plan = metaPlan === "report" || isSubscriptionPlan(metaPlan) ? metaPlan : s.mode === "subscription" ? "monthly" : "report";
-  const kind = sessionPlan === "report" ? "one_time" : "subscription";
+  // The plan named at checkout. A session started before the plans changed names a retired one, which
+  // maps to the plan that replaced it; a session that names none is read from its mode, and the owner is told.
+  const named: Plan | null = isPlan(metaPlan) ? metaPlan : metaPlan && isPlan(LEGACY_PLAN[metaPlan]) ? (LEGACY_PLAN[metaPlan] as Plan) : null;
+  const sessionPlan: Plan = named ?? (s.mode === "subscription" ? "visibility" : "report");
+  const kind = TIERS[sessionPlan].kind;
+  if (!named && s.mode === "subscription") {
+    await queueOwnerMail("owner_alert", `stripe-plan:${sessionId}`, "A subscription payment names no plan",
+      `Checkout session ${sessionId} is a subscription but does not say which plan it is for, so it was recorded as ${TIERS.visibility.name}.\nCheck it in the Stripe dashboard and correct the plan if it is another one.`);
+  }
 
   let [order] = await sql<OrderRow[]>`select * from orders where stripe_checkout_session_id = ${sessionId}`;
   if (!order) {
@@ -192,7 +199,14 @@ async function checkoutCompleted(ev: StripeEventLike): Promise<void> {
   const clinicId = order.clinic_id;
   const name = await clinicName(clinicId);
   // what was bought: the plan stored with the order, else the one the session names
-  const plan: Plan = order.kind === "one_time" ? "report" : isSubscriptionPlan(order.plan) ? order.plan : sessionPlan === "report" ? "monthly" : sessionPlan;
+  const plan: Plan = order.kind === "one_time" ? "report" : isSubscriptionPlan(order.plan) ? order.plan : sessionPlan === "report" ? "visibility" : sessionPlan;
+  // the report credit this payment used, recorded when the checkout was created (or rebuilt from the session)
+  const creditOrderId = str(meta.credit_order_id);
+  if (creditOrderId && UUID_RE.test(creditOrderId)) {
+    await sql`update orders set credit_order_id = ${creditOrderId}, credit_cents = ${num(obj(s.total_details).amount_discount) ?? 0}
+              where id = ${order.id} and credit_order_id is null
+                and exists (select 1 from orders c where c.id = ${creditOrderId} and c.clinic_id = ${clinicId} and c.kind = 'one_time')`;
+  }
 
   // Two payments for the same thing (two tabs, an old link): deliver once and tell the owner.
   let duplicate = false;
@@ -211,6 +225,7 @@ async function checkoutCompleted(ev: StripeEventLike): Promise<void> {
 
   let minTermEnd: Date | null = null;
   const months = plan === "report" ? null : Number(str(meta.min_term_months)) || minTermMonths(plan);
+  const discount = num(obj(s.total_details).amount_discount) ?? 0;
   if (order.kind === "subscription" && subscriptionId) {
     const [sub] = await sql<{ min_term_end: Date | null }[]>`
       insert into subscriptions (clinic_id, stripe_subscription_id, stripe_customer_id, plan, status, min_term_end, stripe_event_created)
@@ -226,13 +241,13 @@ async function checkoutCompleted(ev: StripeEventLike): Promise<void> {
   }
 
   if (buyerEmail) {
-    const r = receipt({ order, plan, name, tax: num(obj(s.total_details).amount_tax), months: months || null, minTermEnd, duplicate });
+    const r = receipt({ order, plan, name, tax: num(obj(s.total_details).amount_tax), credit: discount, months: months || null, minTermEnd, duplicate });
     await queueMessage({ type: "payment_receipt", toEmail: buyerEmail, subject: r.subject, bodyText: r.body, idempotencyKey: `receipt:${order.id}`, clinicId, priority: 10 });
   }
 
   if (duplicate) {
     await queueOwnerMail("owner_alert", `stripe-duplicate:${order.id}`, `Possible double payment: ${name}`,
-      `${name} paid ${money(order.amount_cents, order.currency)} for ${plan === "report" ? "the full report" : `the ${PLAN_NAMES[plan].toLowerCase()}`}, but already has one.\nNothing new was built. Refund or cancel the extra payment in Stripe (session ${sessionId}).`);
+      `${name} paid ${money(order.amount_cents, order.currency)} for ${plan === "report" ? "the full report" : TIERS[plan].inSentence}, but already has ${plan === "report" ? "one" : "a plan"}.\nNothing new was built. Refund or cancel the extra payment in Stripe (session ${sessionId}).`);
     return;
   }
   if (!clinicId) return;
@@ -240,28 +255,35 @@ async function checkoutCompleted(ev: StripeEventLike): Promise<void> {
     await queueOwnerMail("owner_alert", `stripe-noemail:${order.id}`, `Paid order without an email address: ${name}`,
       `Order ${order.id} is paid but Stripe gave no buyer email, so no receipt or report could be queued. Send them by hand.`);
   }
-  // Only the full service needs the intake form and an onboarding task: monthly reports install nothing.
-  if (plan === "monthly") {
+  // What we must start doing. Growth rebuilds the website, so it needs the intake form; on both monthly
+  // plans we publish on the clinic's site, so the owner has an onboarding task. The one-time report installs nothing.
+  if (plan === "growth") {
     await sql`insert into intake_forms (clinic_id, order_id, token) values (${clinicId}, ${order.id}, ${randomToken(24)})
               on conflict (order_id) where order_id is not null do nothing`;
+  }
+  if (plan !== "report") {
     await sql`insert into owner_tasks (kind, clinic_id, order_id, title, body)
-              values ('onboarding', ${clinicId}, ${order.id}, ${`Onboard ${name} (full service plan)`},
-                      ${"Paid. Waiting for the clinic's intake form. The welcome email with the form link and the full report is queued."})
+              values ('onboarding', ${clinicId}, ${order.id}, ${`Onboard ${name} (${TIERS[plan].name})`},
+                      ${plan === "growth"
+                        ? "Paid. Waiting for the clinic's intake form. The welcome email with the form link and the full report is queued. To set up: the website rebuild, the AI receptionist, review requests."
+                        : "Paid. The welcome email with the full report is queued. Arrange access to the clinic's website and listings so the answer pages and fixes can be published."})
               on conflict (order_id) where kind = 'onboarding' and order_id is not null do nothing`;
   }
   await enqueue("build_full_report", `full_report:${order.id}`, { orderId: order.id }, { priority: 20 });
 }
 
-function receipt(x: { order: OrderRow; plan: Plan; name: string; tax: number | null; months: number | null; minTermEnd: Date | null; duplicate: boolean }) {
+function receipt(x: { order: OrderRow; plan: Plan; name: string; tax: number | null; credit: number; months: number | null; minTermEnd: Date | null; duplicate: boolean }) {
   const monthly = x.plan !== "report";
+  const tier = TIERS[x.plan];
   const lines = [
     "Hello,",
     "",
     `Thank you. We received your payment for ${x.name}.`,
     "",
-    x.plan === "monthly" ? "Item: Full service plan, billed each month by card"
-      : x.plan === "reports" ? "Item: Monthly reports, billed each month by card (the first month includes the first full report)"
-      : "Item: Full report and fix files, one time",
+    monthly
+      ? `Item: ${tier.name} plan, ${cad(tier.monthlyCents)} billed each month by card${tier.setupCents ? ` (this first payment includes the ${cad(tier.setupCents)} setup)` : ""}`
+      : `Item: ${tier.name}, one time`,
+    ...(x.credit > 0 ? [`Credit: ${money(x.credit, x.order.currency)}, the price of the full report you bought, taken off this first payment`] : []),
     `Amount paid: ${money(x.order.amount_cents, x.order.currency)}${x.tax ? ` (includes ${money(x.tax, x.order.currency)} HST)` : ""}`,
     `Date: ${formatLongDate(x.order.paid_at ?? new Date())}`,
     `Reference: ${x.order.id}`,
@@ -269,10 +291,10 @@ function receipt(x: { order: OrderRow; plan: Plan; name: string; tax: number | n
   ];
   if (monthly) {
     lines.push(
-      `The plan renews each month until it is cancelled.${x.months ? ` The minimum term is ${minTermText(x.months)}${x.minTermEnd ? `, to ${formatLongDate(x.minTermEnd)}` : ""}.` : ""}`,
-      x.plan === "monthly"
+      `The plan renews each month until it is cancelled.${x.months ? ` The minimum term is ${minTermText(x.months)}${x.minTermEnd ? `, to ${formatLongDate(x.minTermEnd)}` : ""}; after that it runs month to month.` : " It runs month to month."}`,
+      x.plan === "growth"
         ? "A second email follows with your full report and a short form about your website, once the report has been checked."
-        : "A second email follows with your first full report, once it has been checked. A new report follows each month.",
+        : "A second email follows with your full report, once it has been checked. We will also write to arrange access to your website, so we can publish the answer pages.",
       "To cancel, write to us from this address.",
     );
   } else {
@@ -282,7 +304,7 @@ function receipt(x: { order: OrderRow; plan: Plan; name: string; tax: number | n
     );
   }
   lines.push("", "--", signature());
-  return { subject: x.plan === "monthly" ? "Receipt: In The Answer full service plan" : x.plan === "reports" ? "Receipt: In The Answer monthly reports" : "Receipt: In The Answer full report", body: lines.join("\n") };
+  return { subject: monthly ? `Receipt: In The Answer ${tier.name} plan` : "Receipt: In The Answer full report", body: lines.join("\n") };
 }
 
 async function checkoutFailed(ev: StripeEventLike): Promise<void> {
@@ -349,14 +371,17 @@ async function subscriptionChanged(ev: StripeEventLike): Promise<void> {
   const metaClinic = str(meta.clinic_id);
   const [clinic] = metaClinic && UUID_RE.test(metaClinic) ? await sql<{ id: string }[]>`select id from clinics where id = ${metaClinic}` : [];
   const months = Number(str(meta.min_term_months)) || null;
-  const subPlan = isSubscriptionPlan(str(meta.plan)) ? (str(meta.plan) as "reports" | "monthly") : null;
+  // The plan a subscription names (a Transformation subscription is made by hand in Stripe, with its plan in the metadata).
+  // One that names none is stored without a plan and treated everywhere as "has a plan we cannot name".
+  const metaSubPlan = str(meta.plan);
+  const subPlan = isSubscriptionTier(metaSubPlan) ? metaSubPlan : metaSubPlan && LEGACY_PLAN[metaSubPlan] ? metaSubPlan : null;
   const start = ts(sub.start_date) ?? ts(sub.created);
 
   const [before] = await sql<{ status: string; cancel_at: Date | null }[]>`select status, cancel_at from subscriptions where stripe_subscription_id = ${id}`;
-  const [row] = await sql<{ clinic_id: string | null; min_term_end: Date | null; applied: boolean }[]>`
+  const [row] = await sql<{ clinic_id: string | null; min_term_end: Date | null; plan: string | null; applied: boolean }[]>`
     insert into subscriptions (clinic_id, stripe_subscription_id, stripe_customer_id, plan, status, current_period_end, min_term_end,
                                cancel_at, canceled_at, stripe_event_created)
-    values (${clinic?.id ?? null}, ${id}, ${ref(sub.customer)}, ${subPlan ?? "monthly"}, ${status}, ${periodEnd},
+    values (${clinic?.id ?? null}, ${id}, ${ref(sub.customer)}, ${subPlan}, ${status}, ${periodEnd},
             ${months && start ? sql`${start}::timestamptz + make_interval(months => ${months}::int)` : null}, ${cancelAt}, ${canceledAt}, ${eventAt})
     on conflict (stripe_subscription_id) do update set
       clinic_id = coalesce(subscriptions.clinic_id, excluded.clinic_id),
@@ -372,7 +397,7 @@ async function subscriptionChanged(ev: StripeEventLike): Promise<void> {
                     then excluded.canceled_at else subscriptions.canceled_at end,
       stripe_event_created = greatest(subscriptions.stripe_event_created, excluded.stripe_event_created),
       updated_at = now()
-    returning clinic_id, min_term_end, (status = ${status}) as applied`;
+    returning clinic_id, min_term_end, plan, (status = ${status}) as applied`;
 
   const newlyCancelled = deleted && before?.status !== "canceled";
   const newlyScheduled = !deleted && cancelAt != null && row.applied && before?.cancel_at?.getTime() !== cancelAt.getTime();
@@ -380,7 +405,7 @@ async function subscriptionChanged(ev: StripeEventLike): Promise<void> {
     const name = await clinicName(row.clinic_id);
     const early = row.min_term_end && (cancelAt ?? canceledAt ?? eventAt) < row.min_term_end;
     await queueOwnerMail("owner_alert", `stripe:${ev.id}`,
-      deleted ? `Full service plan ended: ${name}` : `Full service plan set to end: ${name}`,
+      deleted ? `${planName(row.plan)} ended: ${name}` : `${planName(row.plan)} set to end: ${name}`,
       [
         deleted ? `The subscription for ${name} has ended.` : `The subscription for ${name} is set to end on ${formatLongDate(cancelAt!)}.`,
         row.min_term_end ? `Minimum term runs to ${formatLongDate(row.min_term_end)}${early ? ": this is before the end of the minimum term." : "."}` : "No minimum term end is recorded.",
@@ -406,7 +431,7 @@ async function chargeRefunded(ev: StripeEventLike): Promise<void> {
     const customer = ref(ch.customer);
     const [sub] = customer ? await sql<{ clinic_id: string | null }[]>`select clinic_id from subscriptions where stripe_customer_id = ${customer} order by created_at desc limit 1` : [];
     await queueOwnerMail("owner_alert", `stripe:${ev.id}`, `Refund recorded in Stripe: ${await clinicName(sub?.clinic_id ?? null)}`,
-      `${money(refunded, str(ch.currency))} of ${money(amount, str(ch.currency))} was refunded on charge ${str(ch.id) ?? "?"}.\nIt is not a one-time report order${sub ? " (it is a full service plan charge)" : ""}, so no order was changed.`);
+      `${money(refunded, str(ch.currency))} of ${money(amount, str(ch.currency))} was refunded on charge ${str(ch.id) ?? "?"}.\nIt is not a one-time report order${sub ? " (it is a monthly plan charge)" : ""}, so no order was changed.`);
     return;
   }
   await sql`

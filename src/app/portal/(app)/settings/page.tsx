@@ -22,6 +22,9 @@ import { callsReady } from "@/lib/calls/rules";
 import { callingHours } from "@/lib/calls/request";
 import { displayPhone } from "@/lib/calls/phone";
 import { CALL_VOICES, resolveVoice } from "@/lib/calls/voices";
+import { PILLARS, PILLAR_ORDER, PROMISES, PROMISE_ORDER, TIERS, TIER_ORDER, priceText, termText } from "@/lib/offer";
+import { switchesFrom } from "@/lib/offerSwitches";
+import { saveOfferSwitchesAction } from "./actions";
 import { env } from "@/lib/env";
 
 export default async function SettingsPage(props: PageProps<"/portal/settings">) {
@@ -58,6 +61,7 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
   const callSetup = callsReady();
   const appUrl = env().APP_URL.replace(/\/$/, "");
   const ourNumber = env().TWILIO_PHONE_NUMBER;
+  const offer = switchesFrom(s);
 
   return (
     <div className="stack">
@@ -184,7 +188,7 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
           </div>
           <div className="row">
             <div>
-              <label htmlFor="ppm">Full service plan: new pages per month</label>
+              <label htmlFor="ppm">Monthly plans: new answer pages per month</label>
               <input id="ppm" name="pages_per_month" type="number" min={0} max={20} defaultValue={s.pages_per_month} />
             </div>
             <div>
@@ -201,6 +205,39 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
             </div>
           </div>
           <button className="btn btn-primary">Save settings</button>
+        </form>
+      </section>
+
+      <section className="card stack" aria-labelledby="offer-h">
+        <h2 id="offer-h">The offer</h2>
+        <p className="small muted">
+          The plans, prices and wording are defined once, in <code>src/lib/offer.ts</code>; the website, the reports, the emails, checkout and
+          the phone assistant all read them. Here you choose what is stated right now. A promise is made, on any of them, only while it is
+          ticked: tick one when the work behind it is in place.
+        </p>
+        <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+          {TIER_ORDER.map((k) => <li key={k}><strong>{TIERS[k].name}</strong>: {priceText(k)}, {termText(k)}</li>)}
+        </ul>
+        <form action={saveOfferSwitchesAction} className="stack">
+          <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend><strong>Promises we state</strong></legend>
+            {PROMISE_ORDER.map((k) => (
+              <label key={k} htmlFor={`promise-${k}`} style={{ display: "flex", gap: 10, alignItems: "flex-start", minHeight: 44 }}>
+                <input id={`promise-${k}`} type="checkbox" name="promise" value={k} defaultChecked={offer.promises.includes(k)} style={{ marginTop: 4 }} />
+                <span><strong>{PROMISES[k].title}.</strong> {PROMISES[k].text}</span>
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend><strong>What we offer (the five pillars)</strong></legend>
+            {PILLAR_ORDER.map((k) => (
+              <label key={k} htmlFor={`pillar-${k}`} style={{ display: "flex", gap: 10, alignItems: "flex-start", minHeight: 44 }}>
+                <input id={`pillar-${k}`} type="checkbox" name="pillar" value={k} defaultChecked={offer.pillars.includes(k)} style={{ marginTop: 4 }} />
+                <span><strong>{PILLARS[k].title}.</strong> {PILLARS[k].text}</span>
+              </label>
+            ))}
+          </fieldset>
+          <button className="btn">Save what we state</button>
         </form>
       </section>
 

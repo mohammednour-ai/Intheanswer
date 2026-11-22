@@ -13,6 +13,7 @@ const TYPE_LABEL: Record<string, string> = {
   retest_upgrade: "Retest + upgrade",
   final_files: "Final files",
   self_serve_teaser: "Self-serve teaser",
+  requested_on_call: "Asked for on a call",
 };
 
 export function typeLabel(t: string) {

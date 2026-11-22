@@ -78,7 +78,7 @@ describe("the offer", () => {
     expect(lines).toEqual([
       "- Full report and fix files: 200 CAD, one time. Every finding with its fix, for your own web person to install. https://intheanswer.ca/buy/tok/report",
       "- Visibility: 200 CAD a month. We publish the answer pages, fix the listings and retest every month. https://intheanswer.ca/buy/tok/visibility",
-      "- Growth: 450 CAD a month, plus 500 CAD setup. Everything in Visibility, plus a rebuilt website that we keep current and an AI receptionist for missed calls. https://intheanswer.ca/buy/tok/growth",
+      "- Growth: 450 CAD a month, plus 500 CAD setup, 6-month minimum, then month to month. Everything in Visibility, plus a rebuilt website that we keep current and an AI receptionist for missed calls. https://intheanswer.ca/buy/tok/growth",
     ]);
     expect(emailOfferLines({ has: "visibility" })).toHaveLength(1);
     expect(emailOfferLines({ withQuote: true })).toHaveLength(4);

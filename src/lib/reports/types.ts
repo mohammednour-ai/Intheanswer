@@ -53,8 +53,18 @@ export interface TeaserData {
   findingsTotal: number;
   /** Site test run the site findings come from (for the verification gate). */
   siteRunId?: string | null;
-  /** reportsUrl and reportsMinTerm are missing on teasers stored before the monthly reports plan existed. */
-  offers: { oneTimeUrl: string; monthlyUrl: string; minTerm: string; reportsUrl?: string; reportsMinTerm?: string };
+  /**
+   * The public site the report links back to. The plans, prices and checkout
+   * links are not part of a report: they are written from src/lib/offer.ts
+   * when it is shown (see offerSection.ts).
+   */
+  siteUrl?: string;
+  /**
+   * Only on teasers stored before 23 November 2026, which kept their checkout
+   * links and terms here. Never read for a price, a term or a plan link: the
+   * site address of such a teaser is taken from it, nothing else.
+   */
+  offers?: { oneTimeUrl?: string; monthlyUrl?: string; minTerm?: string; reportsUrl?: string; reportsMinTerm?: string };
   limits: string;
   owner: OwnerFooter;
   claims: Claim[];

@@ -180,12 +180,50 @@ covers every paid API (Claude and Places), not only Claude.
 - **Follow-up.** One reminder, once, `follow_up_business_days` after a first email with no reply. It is
   reviewed like any other item and counts toward the two-contact limit.
 
+## The offer
+
+Every plan, price, term, pillar and promise is stated once, in `src/lib/offer.ts`, and nowhere else. The
+public pages, the plan cards on a report, the emails, checkout and the phone agent all read it, so they
+cannot disagree. To change a price or a sentence, change it there; `tests/offer.test.ts` runs every
+sentence through the email wording rules and the phone's spoken-word check.
+
+- **Plans:** Full report (200 CAD once), Visibility (200 a month, no minimum), Growth (450 a month plus
+  500 setup, 6-month minimum), Transformation (from 900 a month, quoted, never bought online: its buy
+  page is a "ask for a quote" form that makes a task for the owner). The retired plans ("Monthly
+  reports", "Full service plan") stay valid in old rows and old links lead to Visibility.
+- **Report credit:** the 200 CAD is credited to the first month of a plan started within 30 days of
+  paying for the report. It is one Stripe coupon, attached only by our server for a clinic that qualifies.
+- **Switches:** which promises (support, changes, warranty, security, ownership, terms, quarterly
+  review) and which of the five pillars are stated is the owner's choice in Portal > Settings > The
+  offer (`app_settings.offer_promises`, `offer_pillars`). A promise is said or shown only while it is on.
+- **Report cards are not stored.** A report's plan section is filled in when the page is served or
+  printed, like the live ratings, so a price change needs no re-rendering.
+- **Approved answers** (Portal > Answers, `src/lib/answers.ts`) never type a price: a placeholder such
+  as `{{price:visibility}}` is filled in from the offer when the answer is read.
+
 ## Phone agent
 
-In The Answer Copilot can explain a clinic's report by phone and answer questions about the paid options
-(`src/lib/calls`). It is off until Twilio is configured and the owner turns it on (Portal > Settings >
-Phone calls). The line and the voices have been tried on real Twilio calls; a full conversation with a
-person on a real line is the owner's to test.
+Ansa, the phone voice of In The Answer Copilot, explains a clinic's report by phone and follows the call
+playbook (`src/lib/calls`). It is off until Twilio is configured and the owner turns it on (Portal >
+Settings > Phone calls). The line and the voices have been tried on real Twilio calls, and the playbook
+with the real model through `npm run call:sim`.
+
+- **The playbook** (`playbook.ts`): opening (who is calling, that it is an AI, that the call is
+  transcribed, one ice-breaker chosen by the program), role (not the owner or manager: reach that
+  person, do not sell), the clinic's facts one at a time, discovery, a bridge to at most two parts of
+  the service, one reassurance sentence, the offer, the close. The model reports its stage and the
+  problems the caller's own words showed; the engine enforces the rules: a part of the service is named
+  only when the caller's answer points to it; support, warranty and security only in the published
+  sentence, once; one offer per call; the Transformation price is never said; a checkout link goes out
+  only after the program's own read-back of plan, price and term and a clear yes. A line that breaks a
+  playbook rule is replaced and the call goes on; the after-call review checks the model's reports
+  against what was said.
+- **Emails from a call:** the report and a checkout link use fixed wording built from `offer.ts` and are
+  sent at once (message type `requested_on_call`). A summary of the call is written by the model after
+  the call and waits for the owner's approval, as does the one follow-up a caller may agree to (three
+  business days later, never a second).
+- **Never said:** review counts or ratings (Maps terms: they are shown live on the web report only), a
+  promised result, a price that is not published, "recorded" (nothing is recorded: calls are transcribed).
 
 - **Consent only, no cold calls.** The voice is synthesized. The CRTC's Unsolicited Telecommunications
   Rules allow a solicitation call that conveys a synthesized voice only with the express consent of the
@@ -240,16 +278,21 @@ person on a real line is the owner's to test.
 
 ## Payments and delivery (phase 5)
 
-- Teaser buttons go to `/buy/<report token>/report` and `/buy/<report token>/monthly`. The Stripe session
-  is created only when the visitor presses the button. Checkout is closed (with a plain notice) in dry
-  run, while Stripe is not configured, when the Stripe price is not exactly 200.00 CAD, and for the monthly
-  plan while `MONTHLY_MIN_TERM_MONTHS` is not a number. A clinic is never charged twice for the same thing.
+- Report buttons go to `/buy/<report token>/report`, `/visibility`, `/growth` and `/transformation` (a
+  quote form, no payment). The Stripe session is created only when the visitor presses the button.
+  Checkout is closed (with a plain notice) in dry run, while Stripe is not configured, and when a Stripe
+  price or the credit coupon is not exactly what `src/lib/offer.ts` publishes (the owner is alerted). The
+  page shows what is due today, with the setup amount and any report credit; if that amount changes
+  before the button is pressed, nothing is created and the page is shown again. A clinic is never
+  charged twice for the same thing.
 - `POST /api/stripe/webhook`: signature checked, every event stored once (`stripe_events`), replays are
   no-ops. Payment makes the clinic a customer, stops cold mail, queues a receipt and starts fulfilment.
   Refunds, failed renewals and cancellations update the records and alert the owner.
 - One-time: `build_full_report` builds the full report from stored evidence, runs it through the gate,
-  renders the PDF and queues a `full_report_delivery` email (owner-reviewable). Monthly: the same first
-  delivery plus an intake form (`/intake/<token>`, no login, no passwords) and an onboarding task.
+  renders the PDF and queues a `full_report_delivery` email (owner-reviewable). Visibility: the same
+  first delivery plus an onboarding task (arrange access, so we can publish). Growth: also an intake
+  form (`/intake/<token>`, no login, no passwords). A report buyer who starts a plan with the credit
+  is not sent a second full report.
 - Portal > Customers lists orders, subscriptions and onboarding tasks.
 
 ## Schedule, retests and alerts (phase 6)
@@ -282,7 +325,10 @@ Everything stays a dry run until all of this is true. Do it in this order.
    `https://intheanswer.ca/api/resend/webhook` for the email events (sent, delivered, bounced, complained,
    failed, suppressed, received). Set `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `RESEND_DOMAIN_ID`, and
    `MAIL_REPLY_TO` to an address on the receiving domain so replies reach the portal.
-5. **Stripe**: two products with prices of exactly 200.00 CAD (one-time, and monthly); webhook to
+5. **Stripe**: prices of exactly 200.00 CAD one-time (`STRIPE_PRICE_ONE_TIME`), 200.00 CAD monthly
+   (`STRIPE_PRICE_VISIBILITY_MONTHLY`), 450.00 CAD monthly (`STRIPE_PRICE_GROWTH_MONTHLY`) and 500.00 CAD
+   one-time (`STRIPE_PRICE_GROWTH_SETUP`), and a coupon of 200.00 CAD off, once
+   (`STRIPE_COUPON_REPORT_CREDIT`); webhook to
    `https://intheanswer.ca/api/stripe/webhook` for `checkout.session.completed`, `.expired`,
    `.async_payment_succeeded`, `.async_payment_failed`, `invoice.paid`, `invoice.payment_failed`,
    `customer.subscription.created`, `.updated`, `.deleted`, `charge.refunded`. Optional

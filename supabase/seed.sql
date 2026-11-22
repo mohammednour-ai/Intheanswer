@@ -78,7 +78,8 @@ insert into approved_answers (key, question, match_hints, answer) values
    'I asked an AI assistant with web search turned on the same questions a patient in your city would ask, and recorded every answer in full, including which clinics it named and the sources it used. The report names the assistant, the model and the date. The site checks look only at what is publicly visible on your website.'),
   ('price', 'How much does it cost?',
    array['how much', 'price', 'cost', 'fee'],
-   'There are three options, all plus HST. The full report with fix files is 200 CAD, one time, with a retest four weeks later. Monthly reports are 150 CAD for the first month, then 50 CAD a month with a 3-month minimum: the same report, updated after a fresh retest each month. The full service plan is 200 CAD a month on a 12-month contract: I renovate your website or take it over, install every fix, retest each month and track the clinics named instead of you. The links in the report go straight to checkout.'),
+   -- filled in from src/lib/offer.ts whenever the answer is read, so it can never repeat an old price
+   '{{price_answer}}'),
   ('guarantee', 'Can you guarantee we will be recommended?',
    array['guarantee', 'promise', 'will we be', 'rank'],
    'No. Nobody can guarantee what an AI assistant will say. What I can do is make sure the facts patients ask about are stated clearly on your own site and are consistent across the directories the assistant reads, and then retest so you can see what changed.'),

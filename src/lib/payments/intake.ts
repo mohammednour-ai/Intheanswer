@@ -2,7 +2,7 @@ import { db } from "../db";
 import { queueOwnerMail } from "../sending/outbox";
 
 /**
- * Intake form of the full service plan: a no-login page behind an unguessable token.
+ * Intake form of the Growth plan (the one that rebuilds the website): a no-login page behind an unguessable token.
  * One submission per token; tries are limited per token.
  */
 

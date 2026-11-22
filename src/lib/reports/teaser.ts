@@ -79,7 +79,7 @@ export async function siteCandidates(clinicId: string): Promise<{ runId: string 
   };
 }
 
-export async function buildTeaserData(clinicId: string, scoreId: string, reportToken: string): Promise<TeaserData> {
+export async function buildTeaserData(clinicId: string, scoreId: string): Promise<TeaserData> {
   const sql = db();
   const [s] = await sql<{
     recommended: number; listed_only: number; total: number; audit_id: string; test_run_id: string;
@@ -145,7 +145,6 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
 
   const servedModels = [...new Set(answers.map((a) => a.served_model ?? run.model))];
   const owner = ownerDetails();
-  const base = env().APP_URL;
   return {
     kind: "teaser",
     clinic: { id: clinicId, name, city: c.city, website: c.website, domain: c.domain },
@@ -156,10 +155,7 @@ export async function buildTeaserData(clinicId: string, scoreId: string, reportT
     rows,
     findings,
     pagesRead,
-    offers: {
-      oneTimeUrl: `${base}/buy/${reportToken}/report`, reportsUrl: `${base}/buy/${reportToken}/reports`, monthlyUrl: `${base}/buy/${reportToken}/monthly`,
-      minTerm: owner.minTerm, reportsMinTerm: owner.reportsMinTerm,
-    },
+    siteUrl: env().APP_URL,
     limits: LIMITS_LINE(run.assistant, servedModels.join(", "), date, c.city, s.total),
     findingsTotal: gaps,
     siteRunId: site.runId,

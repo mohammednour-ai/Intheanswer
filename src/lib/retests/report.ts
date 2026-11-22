@@ -10,6 +10,9 @@ import {
 } from "../reports/monthly";
 import type { Claim, RowStatus } from "../reports/types";
 import { htmlToPdf } from "../reports/pdf";
+import { fillOffer, type OfferContext } from "../reports/offerSection";
+import { offerContextFor } from "../reports/offerContext";
+import { emailOfferLines } from "../offer";
 import { updateLivePageResults } from "../pages/workflow";
 import { putFile } from "../storage";
 import { randomToken } from "../tokens";
@@ -103,6 +106,10 @@ export interface BuildOptions {
   previousReport?: { id: string; kind: string; score_id: string | null; created_at: Date } | null;
   /** Used as the earlier score when the previous report has none: the latest score before this moment. */
   baselineBefore?: Date | null;
+  /**
+   * Not read any more: the plans and their checkout links are worked out here from src/lib/offer.ts
+   * and the clinic's own teaser (reports/offerContext.ts). Kept so callers that still pass it compile.
+   */
   monthlyUrl?: string | null;
 }
 
@@ -152,7 +159,6 @@ export async function buildComparisonData(clinicId: string, scoreId: string, o: 
     installed: o.kind === "monthly" ? await installedSince(clinicId, o.previousReport?.created_at ?? null) : [],
     fixed: prev ? await fixedSince(prev.audit_id, cur.audit_id) : [],
     services,
-    offer: o.kind === "retest" && o.monthlyUrl ? { monthlyUrl: o.monthlyUrl } : null,
     limits: LIMITS_LINE(cur.assistant, cur.model, date, c.city, cur.total),
     owner: { name: owner.name, businessName: owner.businessName, mailingAddress: owner.mailingAddress, phone: owner.phone, email: owner.email },
   };
@@ -285,7 +291,14 @@ export function monthlyEmail(d: ComparisonData, url: string, pdf: boolean): { su
   return { subject: `${d.clinic.name}: your ${monthName(d.cycle)} report`, bodyText: lines.join("\n") + "\n\n--\n" + signature() };
 }
 
-export function retestEmail(d: ComparisonData, url: string, monthlyUrl: string): { subject: string; bodyText: string } {
+/**
+ * `offer`: the clinic's checkout links and what it already has. The plans are stated as
+ * src/lib/offer.ts publishes them when the message is written; without a teaser to build the links
+ * from, the pricing page is linked instead.
+ */
+export function retestEmail(d: ComparisonData, url: string, offer: Pick<OfferContext, "buyBase" | "site" | "has" | "switches">): { subject: string; bodyText: string } {
+  // whoever gets a retest bought the one-time report
+  const plans = emailOfferLines({ buyBase: offer.buyBase ?? undefined, has: offer.has ?? "report", switches: offer.switches });
   const lines = [
     "Hello,",
     "",
@@ -295,9 +308,10 @@ export function retestEmail(d: ComparisonData, url: string, monthlyUrl: string):
     "",
     `The retest, question by question: ${url}`,
     "",
-    "If you would like us to install the fixes and retest every month, the full service plan is here:",
-    monthlyUrl,
-    "",
+    ...(plans.length
+      ? ["If you would like us to do the work and retest every month, these are the monthly plans:", ...plans,
+         ...(offer.buyBase ? [] : [`Plans and terms: ${offer.site}/pricing`]), ""]
+      : []),
     "These results are from one assistant on the test date. Assistants change what they recommend, and no one can guarantee that a clinic is named.",
     "",
     "This is the only retest message for your order. Reply to this email with any question.",
@@ -331,12 +345,13 @@ export async function buildAndDeliverComparison(input: DeliverInput, deps: Compa
     const gate = await verifyComparison(raw, { live: !(await effectiveDryRun()) });
     const flags = [...gate.flags];
     const token = randomToken();
+    // stored with a marker where the plans go; they are written in when it is shown or printed
     const html = renderComparisonReport(gate.data);
     let pdfRef: string | null = null;
     let pdfBytes: number | null = null;
     if (input.kind === "monthly") {
       try {
-        const pdf = await (deps.pdf ?? htmlToPdf)(html);
+        const pdf = await (deps.pdf ?? htmlToPdf)(fillOffer(html, await offerContextFor({ clinicId: input.clinicId })));
         pdfRef = await (deps.put ?? putFile)(`reports/${token}.pdf`, pdf, "application/pdf");
         pdfBytes = pdf.length;
       } catch (e) {
@@ -353,7 +368,7 @@ export async function buildAndDeliverComparison(input: DeliverInput, deps: Compa
   }
   const d = report.data;
   const url = reportUrl(report.token);
-  const mail = d.kind === "monthly" ? monthlyEmail(d, url, !!report.pdf_path) : retestEmail(d, url, d.offer?.monthlyUrl ?? `${env().APP_URL}/pricing`);
+  const mail = d.kind === "monthly" ? monthlyEmail(d, url, !!report.pdf_path) : retestEmail(d, url, await offerContextFor({ clinicId: input.clinicId }));
   const flags: Flag[] = [...(d.gate?.flags ?? [])];
   const main = mail.subject + "\n" + mail.bodyText.split("\n--\n")[0];
   for (const f of scanLanguage(main, "email", knownText(d))) if (!flags.some((x) => x.code === f.code)) flags.push(f);

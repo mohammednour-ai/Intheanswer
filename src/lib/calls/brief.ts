@@ -1,6 +1,9 @@
 import { db } from "../db";
 import { ownerDetails, priceNote } from "../env";
-import { PLAN_NAMES, PLAN_PRICES } from "../payments/stripe";
+import { DEFAULT_SWITCHES, POSITIONING_SHORT, REPORT_CREDIT_TEXT, phoneOfferLines, planName, reassurance, speakableAmounts, type Switches } from "../offer";
+import { DISCOVERY, bridgeFor, fixedSentences, painsOffered, type Pain } from "./playbook";
+import { offerSwitches } from "../offerSwitches";
+import { answersFor } from "../answers";
 import { LIVE_SUBSCRIPTION } from "../payments/checkout";
 import { FIXES, type FullReportData } from "../reports/fullReport";
 import { rowTrend, type ComparisonData } from "../reports/monthly";
@@ -20,7 +23,7 @@ export interface CallBrief {
   clinic: { id: string; name: string; city: string | null; domain: string | null } | null;
   reportId: string | null;
   reportToken: string | null;
-  /** The plan the clinic already pays for, if any ("report", "reports", "monthly"). */
+  /** What the clinic already pays for, if anything: a plan key from src/lib/offer.ts, as stored (a retired plan keeps its old key). */
   plan: string | null;
   /** The report, line by line. Empty for a caller we could not match to a report. */
   report: string[];
@@ -38,39 +41,60 @@ export interface CallBrief {
   quoted: string[];
   /** An address is on file to send the report and the checkout links to. */
   canEmailLinks: boolean;
+  /**
+   * The playbook's own lines for this call (discovery questions, the bridge for each pain, the one
+   * reassurance sentence), built from what the owner has switched on. Missing on a brief stored
+   * before the playbook existed.
+   */
+  playbook?: CallPlaybook;
+}
+
+export interface CallPlaybook {
+  switches: Switches;
+  discovery: { pain: Pain; question: string }[];
+  bridges: { pain: Pain; line: string }[];
+  /** Null when no promise is switched on: then nothing is said about support, warranty or security. */
+  reassurance: string | null;
+  positioning: string;
+}
+
+export function playbookFor(switches: Switches): CallPlaybook {
+  const offered = painsOffered(switches);
+  return {
+    switches,
+    discovery: DISCOVERY.filter((d) => offered.includes(d.pain)),
+    bridges: offered.map((pain) => ({ pain, line: bridgeFor(pain) })),
+    reassurance: reassurance(switches),
+    positioning: POSITIONING_SHORT,
+  };
 }
 
 const STATUS: Record<string, string> = { recommended: "Recommended", listed_only: "Listed only", not_named: "Not named" };
 const RESULT_KEY =
   "Each question has one of three results. Recommended: the assistant put the clinic forward as an option. Listed only: it mentioned or cited the clinic without recommending it. Not named: the clinic did not appear in the answer.";
 
-const cad = (cents: number | null) => `${(cents ?? 0) / 100} CAD`;
-
-/** The three paid options exactly as published (pricing page, report, emails). */
-export function offerLines(has: string | null): string[] {
-  const o = ownerDetails();
-  const p = PLAN_PRICES;
-  const all: Record<string, string> = {
-    report: `${PLAN_NAMES.report}: ${cad(p.report.oneTime)}, one time, no contract. Every confirmed finding with its fix, ready for the clinic's own web person to install, and one retest four weeks later.`,
-    reports: `${PLAN_NAMES.reports}: ${cad((p.reports.monthly ?? 0) + (p.reports.firstExtra ?? 0))} for the first month, then ${cad(p.reports.monthly)} a month, with a minimum term of ${o.reportsMinTerm}. The full report and fix files now, then a fresh retest and an updated report every month. The clinic's own web person installs the fixes.`,
-    monthly: `${PLAN_NAMES.monthly}: ${cad(p.monthly.monthly)} a month on a ${o.contractTerm} contract. We renovate the clinic's website or take it over, install every fix, add new answer pages each month, retest the same questions every month with a before and after, and keep watch on the clinics named beside it. It does not include advertising spend, photography, online booking or payment systems, or writing clinical content.`,
-  };
-  // Nobody is sold what they already have; a subscriber moves up by email so the first plan is ended properly.
-  const keys = has === "monthly" ? [] : has === "reports" ? ["monthly"] : has === "report" ? ["reports", "monthly"] : ["report", "reports", "monthly"];
-  if (!keys.length) return [];
+/**
+ * The paid plans as facts for the agent, from src/lib/offer.ts: the same names, prices and terms
+ * the site, the report and checkout show. Nobody is sold what they already have.
+ */
+export function offerLines(has: string | null, switches: Switches = DEFAULT_SWITCHES): string[] {
+  const plans = phoneOfferLines(has, switches);
+  if (!plans.length) return [];
   return [
-    ...keys.map((k) => all[k]),
+    ...plans,
     priceNote(),
+    ...(has ? [] : [REPORT_CREDIT_TEXT]),
     "The free report is the clinic's to keep whether or not it buys anything.",
-    "Buying is by card through the buttons at the end of the report. Payment is never taken on a phone call.",
-    "Refunds and cancelling: the one-time report is refunded when it has not yet been delivered. A monthly plan can be ended at any time after its minimum term or contract. Requests go by email from the address the clinic paid with.",
-    ...(has === "reports" ? ["A clinic already on monthly reports moves to the full service plan by email, so the first plan is ended properly."] : []),
+    "Buying is by card through a checkout link: the buttons at the end of the report, or a link emailed on request. Payment is never taken on a phone call.",
+    "What happens after checkout: a receipt at once; the full report by email once it has been checked. On Visibility we then write to arrange access to the clinic's website, so we can publish the answer pages. On Growth there is a short form about the website, so the rebuild can begin. On both, the first monthly report comes about 30 days later.",
+    "Refunds and cancelling: the one-time report is refunded when it has not yet been delivered. A monthly plan can be ended at any time after its minimum term; Visibility has no minimum term. Requests go by email from the address the clinic paid with.",
+    ...(has && has !== "report" ? ["A clinic already on a monthly plan moves to a larger one by email, so the first plan is ended properly."] : []),
   ];
 }
 
+/** Dollar amounts the agent may say: the published prices of the plans bought online. Never the quoted one. */
 export function allowedAmounts(): number[] {
-  const p = PLAN_PRICES;
-  return [...new Set([p.report.oneTime, p.reports.monthly, (p.reports.monthly ?? 0) + (p.reports.firstExtra ?? 0), p.monthly.monthly].map((c) => (c ?? 0) / 100))];
+  return speakableAmounts();
 }
 
 function companyLines(): string[] {
@@ -147,8 +171,8 @@ function fullLines(d: FullReportData, teaser: TeaserData | null): string[] {
 }
 
 async function approvedAnswers(): Promise<{ question: string; answer: string }[]> {
-  // The price answer is left out: prices come from the published price list above, so the two can never disagree.
-  return db()<{ question: string; answer: string }[]>`select question, answer from approved_answers where active and key <> 'price' order by id`;
+  // The price answer is left out: the plans and their prices are listed in full just above it in the brief.
+  return (await answersFor("phone")).filter((a) => a.key !== "price").map(({ question, answer }) => ({ question, answer }));
 }
 
 function contact(): CallBrief["contact"] {
@@ -158,21 +182,26 @@ function contact(): CallBrief["contact"] {
 
 /** For a caller we cannot match to a clinic: the service and its prices, no report. */
 export async function generalBrief(): Promise<CallBrief> {
+  const switches = await offerSwitches();
   return {
     kind: "general", clinic: null, reportId: null, reportToken: null, plan: null, report: [],
-    offers: offerLines(null), company: companyLines(), answers: await approvedAnswers(), contact: contact(),
-    allowedAmounts: allowedAmounts(), names: [], quoted: [], canEmailLinks: false,
+    offers: offerLines(null, switches), company: companyLines(), answers: await approvedAnswers(), contact: contact(),
+    allowedAmounts: allowedAmounts(), names: [], quoted: fixedSentences(switches), canEmailLinks: false,
+    playbook: playbookFor(switches),
   };
 }
 
 const EXPLAINABLE = ["teaser", "monthly", "retest", "full"];
 
-/** The plan a clinic already pays for, the larger one first. */
+/**
+ * What a clinic already pays for, as stored. A live subscription whose plan we cannot name counts as
+ * the largest plan, so nothing is sold to it by mistake.
+ */
 export async function currentPlan(clinicId: string): Promise<string | null> {
   const sql = db();
-  const [sub] = await sql<{ plan: string }[]>`
-    select plan from subscriptions where clinic_id=${clinicId} and status in ${sql(LIVE_SUBSCRIPTION)} order by (plan = 'monthly') desc limit 1`;
-  if (sub) return sub.plan === "reports" ? "reports" : "monthly";
+  const [sub] = await sql<{ plan: string | null }[]>`
+    select plan from subscriptions where clinic_id=${clinicId} and status in ${sql(LIVE_SUBSCRIPTION)} order by created_at desc limit 1`;
+  if (sub) return sub.plan ?? "transformation";
   const [order] = await sql`select 1 from orders where clinic_id=${clinicId} and kind='one_time' and status in ('paid', 'partially_refunded') limit 1`;
   return order ? "report" : null;
 }
@@ -215,18 +244,22 @@ export async function briefForClinic(clinicId: string, reportId?: string | null)
     : comparisonLines(rep.data as unknown as ComparisonData);
 
   const plan = await currentPlan(clinicId);
+  const switches = await offerSwitches();
   const names = [c.name, ...(teaser?.rows.flatMap((r) => r.namedInstead) ?? [])];
   const quoted = [
     ...(teaser?.rows.map((r) => r.question) ?? []),
     ...(teaser?.findings.flatMap((f) => f.evidence.map((e) => e.quote ?? "")) ?? []),
     ...(rep.kind === "full" ? (rep.data as unknown as FullReportData).pages.map((p) => p.title) : []),
     ...(rep.kind === "monthly" || rep.kind === "retest" ? (rep.data as unknown as ComparisonData).rows.map((r) => r.question) : []),
+    // the published promise sentences are fixed wording, not ours to rephrase or to scan
+    ...fixedSentences(switches),
   ];
   return {
     kind: rep.kind as CallBrief["kind"], clinic: c, reportId: rep.id, reportToken: rep.token, plan, report,
-    offers: offerLines(plan), company: companyLines(), answers: await approvedAnswers(), contact: contact(),
+    offers: offerLines(plan, switches), company: companyLines(), answers: await approvedAnswers(), contact: contact(),
     allowedAmounts: allowedAmounts(), names: [...new Set(names.filter(Boolean))], quoted: [...new Set(quoted.filter(Boolean))],
     canEmailLinks: Boolean(await linkRecipient(clinicId)),
+    playbook: playbookFor(switches),
   };
 }
 
@@ -236,12 +269,12 @@ export function briefText(b: CallBrief): string {
   const section = (title: string, lines: string[]) => (lines.length ? `## ${title}\n${lines.map((l) => `- ${l}`).join("\n")}` : "");
   return [
     b.clinic ? `Clinic on this call: ${b.clinic.name}${b.clinic.city ? `, ${b.clinic.city}, Ontario` : ""}${b.clinic.domain ? ` (${b.clinic.domain})` : ""}.` : "Clinic on this call: not identified. There is no report in front of you.",
-    b.plan ? `This clinic is already a customer (${PLAN_NAMES[b.plan as keyof typeof PLAN_NAMES] ?? b.plan}). Help them with their report; do not sell them what they have.` : "",
+    b.plan ? `This clinic is already a customer (${planName(b.plan)}). Help them with their report; do not sell them what they have.` : "",
     section("The report", b.report),
     section(b.plan ? "Options this clinic does not have yet (mention only if they ask)" : "The paid options", b.offers),
     section("About In The Answer", b.company),
     b.answers.length
-      ? `## Approved answers to common questions\nThese were written by the owner in the first person. Give the same content speaking for the company ("we"); you are not the owner.\n${b.answers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}`
+      ? `## Approved answers to common questions and objections\nSome were written by the owner in the first person. Give the same content speaking for the company ("we"); you are not the owner. Keep the shape: acknowledge, one fact, one question.\n${b.answers.map((a) => `- Q: ${a.question}\n  A: ${a.answer}`).join("\n")}`
       : "",
     `## Who to pass people to\n- ${c.ownerName}, ${c.title}, ${c.businessName}. Phone ${c.phone}. Email ${c.email}.`,
     b.canEmailLinks ? "An email address is on file for this clinic, so the report and the checkout links can be emailed on request." : "No email address is on file for this caller: if they want something sent, hand off to the owner.",

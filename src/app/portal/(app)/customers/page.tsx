@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { markTaskDoneAction } from "./actions";
+import { planName } from "@/lib/offer";
 
 const when = (d: unknown) => (d ? new Date(d as Date).toLocaleDateString("en-CA", { timeZone: "America/Toronto" }) : "");
 const money = (cents: unknown, currency: unknown) =>
@@ -82,7 +83,7 @@ export default async function CustomersPage() {
               {subs.map((s) => (
                 <tr key={s.id as string}>
                   <td>{clinic(s.clinic_id, s.clinic_name)}<div className="small muted">{s.stripe_subscription_id as string}</div></td>
-                  <td className="small">{s.plan === "reports" ? "Monthly reports" : "Full service"}</td>
+                  <td className="small">{s.plan ? planName(s.plan) : "Plan not recorded"}</td>
                   <td>{pill(s.status as string)}</td>
                   <td className="small">{when(s.created_at)}</td>
                   <td className="small">{when(s.current_period_end)}</td>
@@ -108,7 +109,7 @@ export default async function CustomersPage() {
               {orders.map((o) => (
                 <tr key={o.id as string}>
                   <td>{clinic(o.clinic_id, o.clinic_name)}<div className="small muted">{o.customer_email as string}</div></td>
-                  <td>{o.kind !== "subscription" ? "Full report" : o.plan === "reports" ? "Monthly reports (first payment)" : "Full service plan (first payment)"}</td>
+                  <td>{o.kind !== "subscription" ? "Full report" : `${planName(o.plan as string | null)} (first payment)`}</td>
                   <td>{pill(o.status as string)}</td>
                   <td className="small">
                     {money(o.amount_cents, o.currency)}

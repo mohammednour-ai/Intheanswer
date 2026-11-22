@@ -32,14 +32,15 @@ const doc = (inner: string) => `<?xml version="1.0" encoding="UTF-8"?><Response>
  * speak over it. With nothing heard the action is still called (empty), which
  * is how a silence is noticed.
  */
-export function sayAndListen(text: string, actionUrl: string, opts: { hints?: string[]; digits?: number; voice?: string } = {}): string {
+export function sayAndListen(text: string, actionUrl: string, opts: { hints?: string[]; digits?: number; voice?: string; timeout?: number } = {}): string {
   const e = env();
   const hints = (opts.hints ?? []).map((h) => h.replace(/[,"<>&]/g, " ").trim()).filter(Boolean).slice(0, 40).join(", ");
   const attrs = [
     `input="speech dtmf"`,
     `action="${xmlEscape(actionUrl)}"`,
     `method="POST"`,
-    `timeout="6"`,
+    // seconds of silence before the turn is posted empty (how a silence is noticed): 4 by default, more after a question
+    `timeout="${Math.min(15, Math.max(2, Math.round(opts.timeout ?? 4)))}"`,
     `speechTimeout="auto"`,
     `language="${xmlEscape(e.VOICE_LANGUAGE)}"`,
     `actionOnEmptyResult="true"`,

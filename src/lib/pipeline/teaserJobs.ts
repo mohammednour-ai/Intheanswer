@@ -9,7 +9,10 @@ import { buildTeaserData } from "../reports/teaser";
 import { renderTeaser } from "../reports/renderTeaser";
 import { htmlToPdf } from "../reports/pdf";
 import { putFile } from "../storage";
-import { buildFirstEmail } from "../emails/firstEmail";
+import { buildFirstEmail, type Draft } from "../emails/firstEmail";
+import { fillOffer, type OfferContext } from "../reports/offerSection";
+import { offerContextFor } from "../reports/offerContext";
+import { offerSwitches } from "../offerSwitches";
 import { verifyTeaser, scanLanguage, scanExclusionsFor, type Flag } from "./verify";
 import { decideReview } from "../sending/modes";
 import { sendJobPriority } from "../sending/priority";
@@ -57,8 +60,8 @@ async function handleBuildTeaser(ctx: JobContext) {
   }
 
   const token = randomToken();
-  const data = await buildTeaserData(clinicId, scoreId, token);
-  const draft = buildFirstEmail(data, { toEmail: to, sourceUrl: src ?? "", reportUrl: reportUrl(token) });
+  const data = await buildTeaserData(clinicId, scoreId);
+  const draft = buildFirstEmail(data, { toEmail: to, sourceUrl: src ?? "", reportUrl: reportUrl(token), switches: await offerSwitches() });
   const dry = await effectiveDryRun();
   // One report and one draft per score: a retry of this job finds the first ones.
   const key = `teaser:${scoreId}`;
@@ -104,8 +107,11 @@ async function handleVerifyTeaser(ctx: JobContext) {
   });
   if (v.usage) await ctx.cost({ provider: "anthropic", operation: "verify", units: v.usage as never, costUsd: v.costUsd, clinicId: rep.clinic_id });
 
+  // The plans, as published now: the email states them, and the PDF carries the cards. The stored
+  // report keeps only a marker (the web page writes them in each time it is opened).
+  const offer = await offerContextFor({ clinicId: rep.clinic_id, teaserToken: rep.token, findingsTotal: v.data.findingsTotal });
   // rebuild the email from what survived, then scan it again
-  const draft = buildFirstEmail(v.data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token) });
+  const draft = buildFirstEmail(v.data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token), switches: offer.switches });
   const flags: Flag[] = v.flags.filter((f) => f.code !== "email_finding_removed");
   for (const f of scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", v.exclude)) {
     if (!flags.some((x) => x.code === f.code)) flags.push(f);
@@ -116,7 +122,7 @@ async function handleVerifyTeaser(ctx: JobContext) {
   let pdfRef: string | null = null;
   let pdfBytes: number | null = null;
   try {
-    const pdf = await htmlToPdf(html);
+    const pdf = await htmlToPdf(fillOffer(html, offer));
     pdfRef = await putFile(`reports/${rep.token}.pdf`, pdf, "application/pdf");
     pdfBytes = pdf.length;
   } catch (e) {
@@ -160,6 +166,60 @@ async function handleVerifyTeaser(ctx: JobContext) {
   return { status: result.status, flags, removed: v.removed, findings: v.data.findings.length };
 }
 
+const TEASER_EMAILS = ["first_email", "self_serve_teaser"];
+
+/** A teaser email worked out again from its report: what `prepareTeaserRebuild` hands back. */
+export interface TeaserRebuild {
+  msg: { id: string; type: string; status: string; to_email: string; contact_source_url: string | null; subject: string; body_text: string; report_id: string; clinic_id: string | null };
+  rep: { token: string; data: TeaserData & { verified?: boolean }; html: string; pdf_path: string | null };
+  /** The report's verified data, with the current sender details. */
+  data: TeaserData;
+  draft: Draft;
+  /** The report page again. The plans are a marker in it; `offer` fills them in for the PDF. */
+  html: string;
+  offer: OfferContext;
+  /** What the wording and sender checks say about the rebuilt email. */
+  flags: Flag[];
+  blocked: boolean;
+}
+
+/**
+ * Work out a waiting teaser email again, with the current wording, plans and
+ * sender details, from its report's already-verified data. No model call, and
+ * nothing is written: the caller decides what to store.
+ */
+export async function prepareTeaserRebuild(messageId: string, statuses: string[]): Promise<TeaserRebuild | { skipped: string }> {
+  const sql = db();
+  const [msg] = await sql<{ id: string; type: string; status: string; to_email: string; contact_source_url: string | null;
+                           subject: string; body_text: string; report_id: string | null; clinic_id: string | null }[]>`
+    select id, type::text, status::text, to_email, contact_source_url, subject, body_text, report_id, clinic_id
+    from messages where id=${messageId}`;
+  if (!msg) throw new PermanentJobError("message missing");
+  if (!statuses.includes(msg.status)) return { skipped: `message is ${msg.status}` };
+  if (!TEASER_EMAILS.includes(msg.type) || !msg.report_id) return { skipped: "not a teaser email" };
+  const [rep] = await sql<TeaserRebuild["rep"][]>`select token, data, html, pdf_path from reports where id=${msg.report_id}`;
+  if (!rep || !rep.data.verified) return { skipped: "report not verified" };
+
+  const o = ownerDetails();
+  const data: TeaserData = { ...rep.data, owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email } };
+  const offer = await offerContextFor({ clinicId: msg.clinic_id, teaserToken: rep.token, findingsTotal: data.findingsTotal });
+  const draft = buildFirstEmail(data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token), switches: offer.switches });
+  const [own] = msg.clinic_id
+    ? await sql<{ name: string; site_name: string | null }[]>`select name, site_name from clinics where id=${msg.clinic_id}`
+    : [];
+  const flags: Flag[] = scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", scanExclusionsFor(data, own));
+  for (const p of identificationProblems(msg.type, draft.bodyText)) flags.push({ code: "identification", message: p, severity: "block" });
+  return {
+    msg: { ...msg, report_id: msg.report_id }, rep, data, draft, html: renderTeaser(data), offer, flags,
+    blocked: flags.some((f) => f.severity === "block"),
+  };
+}
+
+/** The rebuilt report as a PDF, with the plans written in. */
+export function renderTeaserPdf(r: Pick<TeaserRebuild, "html" | "offer">, pdf: (html: string) => Promise<Buffer> = htmlToPdf): Promise<Buffer> {
+  return pdf(fillOffer(r.html, r.offer));
+}
+
 /**
  * Rebuild a waiting teaser email (and its report footer and PDF) with the
  * current wording and sender details, from the report's already-verified data.
@@ -170,29 +230,11 @@ async function handleVerifyTeaser(ctx: JobContext) {
 async function handleRefreshTeaser(ctx: JobContext) {
   const { messageId } = ctx.job.payload as { messageId: string };
   const sql = db();
-  const [msg] = await sql<{ id: string; type: string; status: string; to_email: string; contact_source_url: string | null;
-                           subject: string; body_text: string; report_id: string | null; clinic_id: string | null }[]>`
-    select id, type::text, status::text, to_email, contact_source_url, subject, body_text, report_id, clinic_id
-    from messages where id=${messageId}`;
-  if (!msg) throw new PermanentJobError("message missing");
-  if (!["held", "pending_review"].includes(msg.status)) return { skipped: `message is ${msg.status}` };
-  if (!["first_email", "self_serve_teaser"].includes(msg.type) || !msg.report_id) return { skipped: "not a teaser email" };
-  const [rep] = await sql<{ data: TeaserData & { verified?: boolean }; token: string }[]>`
-    select data, token from reports where id=${msg.report_id}`;
-  if (!rep || !rep.data.verified) return { skipped: "report not verified" };
+  const r = await prepareTeaserRebuild(messageId, ["held", "pending_review"]);
+  if ("skipped" in r) return r;
+  const { msg, rep, data, draft, html, flags, blocked } = r;
 
-  const o = ownerDetails();
-  const data: TeaserData = { ...rep.data, owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email } };
-  const draft = buildFirstEmail(data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token) });
-  const [own] = msg.clinic_id
-    ? await sql<{ name: string; site_name: string | null }[]>`select name, site_name from clinics where id=${msg.clinic_id}`
-    : [];
-  const flags: Flag[] = scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", scanExclusionsFor(data, own));
-  for (const p of identificationProblems(msg.type, draft.bodyText)) flags.push({ code: "identification", message: p, severity: "block" });
-  const blocked = flags.some((f) => f.severity === "block");
-
-  const html = renderTeaser(data);
-  const pdf = await htmlToPdf(html);
+  const pdf = await renderTeaserPdf(r);
   const pdfRef = await putFile(`reports/${rep.token}.pdf`, pdf, "application/pdf");
   const settings = await getSettings();
   const status = blocked ? "held" : "pending_review";

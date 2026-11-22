@@ -32,6 +32,13 @@ export function markSvg(opts: { width?: number; variant?: "light" | "dark"; labe
 export const COPILOT_NAME = "In The Answer Copilot";
 
 /**
+ * The name the Copilot uses on the phone. Short for "Answer": easy to say, tied to the brand, and
+ * not a common human name, so it never suggests that a person is calling. It is always introduced
+ * as "Ansa, the AI assistant from In The Answer".
+ */
+export const VOICE_NAME = "Ansa";
+
+/**
  * Copilot avatar (design canvas: "Copilot avatar and branding"): the answer mark
  * on an ink circle; the blue presence dot marks it as the AI assistant. Always
  * presented as AI, never as a person.

@@ -7,6 +7,7 @@ import { setTypeMode } from "@/lib/sending/modes";
 import { checkDns } from "@/lib/sending/dns";
 import { ontarioMunicipality, cityKey } from "@/lib/site/ontarioCities";
 import { redirect } from "next/navigation";
+import { isPillarKey, isPromiseKey } from "@/lib/offer";
 
 function num(v: FormDataEntryValue | null, min: number, max: number): number | null {
   if (v === null || String(v).trim() === "") return null;
@@ -198,4 +199,17 @@ export async function checkDnsAction() {
   await requireOwner();
   await checkDns();
   revalidatePath("/portal/settings");
+}
+
+/**
+ * Which promises and pillars are stated right now. Only keys the offer defines are stored; what is
+ * unticked is no longer said on the site, in a report, in an email or on a call from the next request on.
+ */
+export async function saveOfferSwitchesAction(form: FormData) {
+  await requireOwner();
+  const promises = [...new Set(form.getAll("promise").map(String).filter(isPromiseKey))];
+  const pillars = [...new Set(form.getAll("pillar").map(String).filter(isPillarKey))];
+  await db()`update app_settings set offer_promises = ${promises}, offer_pillars = ${pillars}, updated_at = now() where id`;
+  revalidatePath("/", "layout");
+  redirect("/portal/settings#offer-h");
 }

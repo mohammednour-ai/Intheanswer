@@ -13,7 +13,7 @@ import type { Sql } from "../db";
  * - The verification gate runs in both modes; a flagged item is held either way.
  */
 
-export const ALWAYS_AUTO = new Set(["payment_receipt", "unsubscribe_confirmation", "owner_digest", "owner_alert"]);
+export const ALWAYS_AUTO = new Set(["payment_receipt", "unsubscribe_confirmation", "owner_digest", "owner_alert", "requested_on_call"]);
 
 /** Types that are governed by another type's switch. */
 const MODE_ALIAS: Record<string, string> = {

@@ -1,6 +1,7 @@
 import Stripe from "stripe";
-import { env, OWNER_PLACEHOLDER_RE } from "../env";
+import { env } from "../env";
 import { effectiveDryRun } from "../settings";
+import { ONLINE_TIERS, TIERS, isOnlineTier, type OnlineTier } from "../offer";
 
 /**
  * The small part of the Stripe client this app uses. Code takes a `StripeLike`
@@ -16,6 +17,8 @@ export interface CheckoutSessionParams {
   payment_intent_data?: { metadata: Record<string, string> };
   subscription_data?: { metadata: Record<string, string> };
   custom_text?: { submit?: { message: string } };
+  /** The report credit. Never a code the buyer types: we attach it, for a clinic that qualifies. */
+  discounts?: { coupon: string }[];
   success_url: string;
   cancel_url: string;
 }
@@ -32,6 +35,9 @@ export interface StripeLike {
   checkout: { sessions: { create(params: CheckoutSessionParams): Promise<{ id: string; url: string | null }> } };
   prices: {
     retrieve(id: string): Promise<{ id: string; active: boolean; currency: string; unit_amount: number | null; recurring: { interval: string; interval_count: number } | null }>;
+  };
+  coupons: {
+    retrieve(id: string): Promise<{ id: string; valid: boolean; amount_off: number | null; currency: string | null; duration: string }>;
   };
   webhooks: { constructEvent(payload: string, header: string, secret: string): StripeEventLike };
 }
@@ -55,54 +61,23 @@ export function setStripeForTests(fake: StripeLike | null) {
 }
 
 /**
- * The three paid plans:
- * - report:  the full report and fix files, one payment
- * - reports: a new full report every month, nothing installed by us
- * - monthly: the full service (website work, fixes installed, monthly retest)
+ * The plans a clinic can buy online. What they are, what they cost and their
+ * terms are stated in src/lib/offer.ts and nowhere else; this file only knows
+ * how to charge for them. Transformation is quoted by the founder and never
+ * goes through checkout.
  */
-export type Plan = "report" | "reports" | "monthly";
-export type SubscriptionPlan = "reports" | "monthly";
-export const PLANS: Plan[] = ["report", "reports", "monthly"];
-export const isSubscriptionPlan = (plan: string | null | undefined): plan is SubscriptionPlan => plan === "reports" || plan === "monthly";
-export const orderKind = (plan: Plan) => (plan === "report" ? "one_time" : "subscription");
+export type Plan = OnlineTier;
+export type SubscriptionPlan = Exclude<Plan, "report">;
+export const PLANS: Plan[] = ONLINE_TIERS;
+export const isPlan = (plan: string | null | undefined): plan is Plan => isOnlineTier(plan);
+export const isSubscriptionPlan = (plan: string | null | undefined): plan is SubscriptionPlan => isOnlineTier(plan) && TIERS[plan].kind === "subscription";
+export const orderKind = (plan: Plan) => TIERS[plan].kind;
 
 export const PRICE_CURRENCY = "cad";
 
-/**
- * Published prices in cents, before HST. Every Stripe price is checked against
- * these before a checkout is created. `firstExtra` is a one-time amount added
- * to the first month only (monthly reports: 100 + 50 = 150 for the first month).
- */
-export const PLAN_PRICES: Record<Plan, { oneTime: number | null; monthly: number | null; firstExtra: number | null }> = {
-  report: { oneTime: 20000, monthly: null, firstExtra: null },
-  reports: { oneTime: null, monthly: 5000, firstExtra: 10000 },
-  monthly: { oneTime: null, monthly: 20000, firstExtra: null },
-};
-
-export const PLAN_NAMES: Record<Plan, string> = {
-  report: "Full report and fix files",
-  reports: "Monthly reports",
-  monthly: "Full service plan",
-};
-
-/** What the first payment comes to, before HST. */
-export function firstPaymentCents(plan: Plan): number {
-  const p = PLAN_PRICES[plan];
-  return (p.oneTime ?? 0) + (p.monthly ?? 0) + (p.firstExtra ?? 0);
-}
-
-/**
- * Minimum term of a subscription plan in months: MONTHLY_MIN_TERM_MONTHS for
- * the full service plan, REPORTS_MIN_TERM_MONTHS for monthly reports ("3" or
- * "3 months"). Null while it is still a placeholder or not a number.
- */
-export function minTermMonths(plan: SubscriptionPlan = "monthly"): number | null {
-  const raw = (plan === "reports" ? env().REPORTS_MIN_TERM_MONTHS : env().MONTHLY_MIN_TERM_MONTHS).trim();
-  if (OWNER_PLACEHOLDER_RE.test(raw)) return null;
-  const m = raw.match(/^(\d{1,2})(\s*months?)?$/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n >= 1 && n <= 36 ? n : null;
+/** Minimum term of a plan in months (null: none), from the offer. */
+export function minTermMonths(plan: Plan): number | null {
+  return TIERS[plan].minTermMonths;
 }
 
 export function minTermText(n: number): string {
@@ -113,29 +88,28 @@ export interface CheckoutState {
   open: boolean;
   reason: string | null;      // for the owner and the logs, never shown to the visitor
   priceId: string | null;
-  firstExtraPriceId: string | null; // one-time price added to the first month (monthly reports only)
+  setupPriceId: string | null; // one-time price added to the first invoice (the Growth setup)
+  couponId: string | null;     // the report credit, attached only by us and only for a clinic that qualifies
   minTerm: number | null;
 }
 
 /**
- * Whether a checkout may be started for a plan. Closed in dry run, when any
- * Stripe setting is missing (the webhook secret too: without it a payment
- * could never be fulfilled), and for the full service plan while the minimum term
- * is not set.
+ * Whether a checkout may be started for a plan. Closed in dry run and when
+ * any Stripe setting the plan needs is missing (the webhook secret too:
+ * without it a payment could never be fulfilled).
  */
 export async function checkoutState(plan: Plan): Promise<CheckoutState> {
   const e = env();
-  const priceId = (plan === "monthly" ? e.STRIPE_PRICE_MONTHLY : plan === "reports" ? e.STRIPE_PRICE_REPORTS_MONTHLY : e.STRIPE_PRICE_ONE_TIME) ?? null;
-  const firstExtraPriceId = plan === "reports" ? (e.STRIPE_PRICE_REPORTS_FIRST ?? null) : null;
-  const minTerm = plan === "report" ? null : minTermMonths(plan);
-  const closed = (reason: string): CheckoutState => ({ open: false, reason, priceId, firstExtraPriceId, minTerm });
+  const t = TIERS[plan];
+  const priceId = (plan === "growth" ? e.STRIPE_PRICE_GROWTH_MONTHLY : plan === "visibility" ? e.STRIPE_PRICE_VISIBILITY_MONTHLY : e.STRIPE_PRICE_ONE_TIME) ?? null;
+  const setupPriceId = t.setupCents ? (e.STRIPE_PRICE_GROWTH_SETUP ?? null) : null;
+  const couponId = t.kind === "subscription" ? (e.STRIPE_COUPON_REPORT_CREDIT ?? null) : null;
+  const minTerm = t.minTermMonths;
+  const closed = (reason: string): CheckoutState => ({ open: false, reason, priceId, setupPriceId, couponId, minTerm });
   if (await effectiveDryRun()) return closed("dry run");
   if (!stripeClient()) return closed("STRIPE_SECRET_KEY is not set");
   if (!e.STRIPE_WEBHOOK_SECRET) return closed("STRIPE_WEBHOOK_SECRET is not set");
   if (!priceId) return closed(`the price id for the ${plan} plan is not set`);
-  if (plan === "reports" && !firstExtraPriceId) return closed("STRIPE_PRICE_REPORTS_FIRST is not set");
-  if (plan !== "report" && minTerm == null) {
-    return closed(`${plan === "reports" ? "REPORTS_MIN_TERM_MONTHS" : "MONTHLY_MIN_TERM_MONTHS"} is not set to a number of months`);
-  }
-  return { open: true, reason: null, priceId, firstExtraPriceId, minTerm };
+  if (t.setupCents && !setupPriceId) return closed("STRIPE_PRICE_GROWTH_SETUP is not set");
+  return { open: true, reason: null, priceId, setupPriceId, couponId, minTerm };
 }

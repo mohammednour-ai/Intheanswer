@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireOwner } from "@/lib/auth";
 import { getSettings, effectiveDryRun } from "@/lib/settings";
-import { COPILOT_NAME, copilotAvatarSvg } from "@/lib/brand";
+import { COPILOT_NAME, VOICE_NAME, copilotAvatarSvg } from "@/lib/brand";
+import { planName } from "@/lib/offer";
 import { listCalls, listCallSuppressions, turnsFor, type CallListItem } from "@/lib/calls/queries";
 import { callsReady } from "@/lib/calls/rules";
 import { OWNER_SOURCES } from "@/lib/calls/request";
@@ -20,6 +21,15 @@ const STATUS: Record<string, { t: string; cls: string }> = {
   cancelled: { t: "Cancelled", cls: "" },
   blocked: { t: "Not placed", cls: "pill-warn" },
 };
+
+const STAGE: Record<string, string> = {
+  opening: "the opening", role: "who is on the line", facts: "the clinic's results", discovery: "discovery", bridge: "what we would do",
+  reassurance: "reassurance", offer: "the offer", close: "the close",
+};
+const PAIN: Record<string, string> = {
+  missed_calls: "missed calls", old_website: "an old website", reviews: "reviews", too_many_vendors: "too many suppliers", not_in_ai_answers: "not in AI answers",
+};
+const CHOICE: Record<string, string> = { start_now: "start now", think_it_over: "think it over", talk_to_person: "talk to a person" };
 
 const OUTCOME: Record<string, string> = {
   interested: "Interested",
@@ -61,7 +71,7 @@ export default async function CallsPage(props: PageProps<"/portal/calls">) {
         <h1 style={{ margin: 0 }}>Calls</h1>
       </div>
       <p className="muted">
-        {COPILOT_NAME} explains a clinic&apos;s report by phone and answers questions about the paid options. It only calls a number a
+        {VOICE_NAME}, the phone voice of {COPILOT_NAME}, explains a clinic&apos;s report by phone and answers questions about the paid options. It only calls a number a
         clinic asked us to call, and it answers calls made to our number. Every call is transcribed and checked afterwards against the
         report it was given.
       </p>
@@ -78,7 +88,17 @@ export default async function CallsPage(props: PageProps<"/portal/calls">) {
           {calls.map((c) => {
             const st = STATUS[c.status] ?? { t: c.status, cls: "" };
             const lines = turns.get(c.id) ?? [];
-            const sig = c.signals as { handoff?: string[]; email_links?: string; do_not_call?: boolean; do_not_contact?: boolean; guard_blocks?: number; identified_by?: string };
+            const sig = c.signals as {
+              handoff?: string[]; email_links?: string; do_not_call?: boolean; do_not_contact?: boolean; guard_blocks?: number; identified_by?: string;
+              stage?: string; pains?: string[]; plan?: string; choice?: string; sent?: string[]; summary_wanted?: boolean; follow_up_ok?: boolean;
+              not_decision_maker?: boolean; playbook_blocks?: number;
+            };
+            const went = [
+              sig.stage ? `Reached: ${STAGE[sig.stage] ?? sig.stage}` : "",
+              sig.pains?.length ? `Their words pointed to: ${sig.pains.map((p) => PAIN[p] ?? p).join(", ")}` : "",
+              sig.plan ? `Plan discussed: ${planName(sig.plan)}` : "",
+              sig.choice ? `They chose: ${CHOICE[sig.choice] ?? sig.choice}` : "",
+            ].filter(Boolean);
             return (
               <li key={c.id} id={`call-${c.id}`} className="card stack">
                 <div className="row" style={{ justifyContent: "space-between" }}>
@@ -100,10 +120,16 @@ export default async function CallsPage(props: PageProps<"/portal/calls">) {
                 <div className="small">{consentLine(c)}</div>
                 {c.summary ? <p style={{ margin: 0 }}>{c.summary}</p> : null}
                 {c.last_error && c.status !== "completed" ? <p className="small muted" style={{ margin: 0 }}>{c.last_error}</p> : null}
-                {(sig.handoff?.length || sig.email_links || sig.do_not_call || sig.do_not_contact || sig.identified_by === "name") ? (
+                {went.length ? <p className="small" style={{ margin: 0 }}>{went.join(" · ")}</p> : null}
+                {(sig.handoff?.length || sig.email_links || sig.do_not_call || sig.do_not_contact || sig.identified_by === "name" || sig.sent?.length || sig.summary_wanted || sig.follow_up_ok || sig.not_decision_maker || sig.playbook_blocks) ? (
                   <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
                     {sig.identified_by === "name" ? <li>The caller gave this clinic&apos;s name and confirmed it. That is their word only: no report code, and not a number we know.</li> : null}
+                    {sig.not_decision_maker ? <li>The person on the call was not the owner or the manager: nothing was offered.</li> : null}
                     {(sig.handoff ?? []).map((h, i) => <li key={i}><strong>Needs you:</strong> {h}</li>)}
+                    {(sig.sent ?? []).map((x) => <li key={x}>Emailed at their request, in fixed wording: {x.startsWith("checkout:") ? `the checkout link for ${planName(x.slice(9))}` : "the report and the plans"}.</li>)}
+                    {sig.summary_wanted ? <li>A summary of the call was promised: it is written after the call and waits in the <Link href="/portal">queue</Link> for you.</li> : null}
+                    {sig.follow_up_ok ? <li>Agreed to one follow-up email, three business days after the call. It waits in the queue for you.</li> : null}
+                    {sig.playbook_blocks ? <li>{sig.playbook_blocks} line(s) were stopped for going off the playbook (a service the caller had not asked about, or a second offer). The call went on.</li> : null}
                     {sig.email_links === "queued" ? <li>Asked for the links by email: a draft is in the <Link href="/portal">queue</Link>.</li> : null}
                     {sig.email_links === "no_address" ? <li>Asked for the links by email, but no address is on file.</li> : null}
                     {sig.do_not_call ? <li>Asked not to be called: the number is on the do-not-call list.</li> : null}

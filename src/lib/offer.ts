@@ -391,7 +391,7 @@ export function emailOfferLines(opts: { buyBase?: string; has?: string | null; s
   };
   return offeredTo(opts.has)
     .filter((k) => k !== "transformation" || opts.withQuote)
-    .map((k) => `- ${TIERS[k].name}: ${priceText(k)}. ${short[k]}${opts.buyBase ? ` ${opts.buyBase}/${k}` : ""}`);
+    .map((k) => `- ${TIERS[k].name}: ${priceText(k)}${TIERS[k].minTermMonths && !TIERS[k].priceFrom ? `, ${termText(k)}` : ""}. ${short[k]}${opts.buyBase ? ` ${opts.buyBase}/${k}` : ""}`);
 }
 
 /** The owner's answer to "how much does it cost?", generated so it can never repeat an old price. */

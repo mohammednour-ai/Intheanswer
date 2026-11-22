@@ -11,13 +11,15 @@ import { normalizeCanadianPhone, spokenCode, speakablePhone } from "@/lib/calls/
 import { sayAndHangUp, sayAndListen } from "@/lib/calls/twiml";
 import { checkSpoken, hearsOptOut, FALLBACK_LINE } from "@/lib/calls/guard";
 import { allowedAmounts, briefForClinic, briefText, generalBrief, offerLines } from "@/lib/calls/brief";
-import { reviewTranscript, systemPrompt, type Brain, type AgentTurn, type TranscriptLine } from "@/lib/calls/agent";
+import { numberAnswer, reviewTranscript, systemPrompt, type Brain, type AgentTurn, type TranscriptLine } from "@/lib/calls/agent";
 import { isPhoneSuppressed, suppressPhone } from "@/lib/calls/rules";
 import { callOffer, cancelCall, consentWording, ensureCallCode, requestCall, scheduleOwnerCall } from "@/lib/calls/request";
 import { callLinkHtml } from "@/lib/calls/reportLink";
 import { findClinics, rankClinics, wordLikeness } from "@/lib/calls/lookup";
 import { CALL_VOICES, DEFAULT_CALL_VOICE, resolveVoice } from "@/lib/calls/voices";
-import { callHousekeeping, onAmd, onAnswer, onIncoming, onStatus, onTurn, placeCall, reviewCall, setBrain, setReviewer } from "@/lib/calls/engine";
+import { callFollowUp, callHousekeeping, inboundGreeting, onAmd, onAnswer, onIncoming, onStatus, onTurn, outboundGreeting, placeCall, reviewCall, setBrain, setReviewer } from "@/lib/calls/engine";
+import { ICE_BREAKERS, PAINS, bridgeFor, checkPlaybook, iceBreaker, linkSent, painsOffered, type PlaybookState } from "@/lib/calls/playbook";
+import { DEFAULT_SWITCHES, PILLAR_ORDER, PROMISE_ORDER, readBack, reassurance, type Switches } from "@/lib/offer";
 import { makeClinic, resetData } from "./helpers";
 
 const tue10 = torontoToUtc("2026-11-10", "10:00");
@@ -46,8 +48,11 @@ const scriptedBrain: Brain = async (i) => {
   if (next instanceof Error) throw next;
   return { turn: next, usage: null, costUsd: 0.001, model: "test" };
 };
-function line(say: string, action: AgentTurn["action"] = "continue", more: { handoff_note?: string; email_links?: boolean; clinic_search?: string; clinic_choice?: "1" | "2" | "3" } = {}): AgentTurn {
-  return { say, action, email_links: more.email_links ?? false, handoff_note: more.handoff_note ?? null, clinic_search: more.clinic_search ?? null, clinic_choice: more.clinic_choice ?? null };
+function line(say: string, action: AgentTurn["action"] = "continue", more: Partial<Omit<AgentTurn, "say" | "action">> = {}): AgentTurn {
+  return {
+    say, action, stage: "facts", pains: [], buying_signal: false, declined: false, not_decision_maker: false,
+    send: null, plan: null, confirmed: false, follow_up_ok: false, handoff_note: null, clinic_search: null, clinic_choice: null, ...more,
+  };
 }
 
 async function setEnv(vars: Record<string, string>) {
@@ -89,6 +94,19 @@ async function answeredCall() {
   return { ...r, ...c };
 }
 
+/** A second answered call for a clinic that already had one (a new request, a later day). */
+async function answeredCallFor(first: { clinicId: string; token: string; id: string }) {
+  const sql = db();
+  await sql`update calls set status='completed', ended_at=now() where id=${first.id}`;
+  const [rep] = await sql<{ token: string }[]>`select token from reports where clinic_id=${first.clinicId} limit 1`;
+  const wed10 = torontoToUtc("2026-11-12", "10:00");
+  await requestCall({ token: rep.token, phone: "705-555-0142", agreed: true, ip: "2.2.2.2" }, wed10);
+  const c = await onlyCall();
+  await placeCall(c.id, log, wed10);
+  await onAnswer(c.token);
+  return c;
+}
+
 beforeEach(async () => {
   await resetData();
   for (const k of [...Object.keys(LIVE), "DRY_RUN", "VOICE_MODEL", "STRIPE_TAX_RATE_ID"]) delete process.env[k];
@@ -97,7 +115,7 @@ beforeEach(async () => {
   placed.length = 0; ended.length = 0; asked.length = 0; script = [];
   setVoiceProvider(fakeVoice);
   setBrain(scriptedBrain);
-  setReviewer(async () => ({ review: { summary: "They asked about the result.", outcome: "asked_questions", follow_up: null, unsupported: [] }, usage: null, costUsd: 0 }));
+  setReviewer(async () => ({ review: { summary: "They asked about the result.", outcome: "asked_questions", follow_up: null, unsupported: [], clinic_summary: null }, usage: null, costUsd: 0 }));
   setMailProvider({ async send() { return { id: "re_1" }; }, async getInbound() { throw new Error("unused"); }, async domainState() { return null; }, verifyWebhook() { throw new Error("unused"); } });
 });
 
@@ -212,7 +230,8 @@ describe("the spoken-word check", () => {
   it("lets a plain, factual line through", () => {
     const r = checkSpoken("Claude recommended your clinic in 1 of 6 answers. The full report is 200 dollars, one time.", brief);
     expect(r.ok).toBe(true);
-    expect(checkSpoken("Monthly reports are 150 dollars for the first month, then 50 dollars a month.", brief).ok).toBe(true);
+    expect(checkSpoken("Growth is 450 dollars a month plus 500 dollars setup, with a 6-month minimum.", brief).ok).toBe(true);
+    expect(checkSpoken("Monthly reports are 150 dollars for the first month, then 50 dollars a month.", brief).ok).toBe(false); // a retired price
     expect(checkSpoken("No one can guarantee what an assistant will say.", brief).ok).toBe(true);
     // declining to promise is not a promise
     expect(checkSpoken("No one can guarantee it, so I can't promise your clinic will be recommended next month.", brief).ok).toBe(true);
@@ -220,6 +239,12 @@ describe("the spoken-word check", () => {
     // nor is saying that there is no discount
     expect(checkSpoken("The price is 200 dollars a month, and I do not have any discount to offer.", brief).ok).toBe(true);
     expect(checkSpoken("There are no discounts or special offers.", brief).ok).toBe(true);
+  });
+  it("does not take everyday uses of 'top' for a superlative", () => {
+    expect(checkSpoken("On top of that it adds a rebuilt website.", brief).ok).toBe(true);
+    expect(checkSpoken("The notice at the top of your home page is from last October.", brief).ok).toBe(true);
+    expect(checkSpoken("We are the top service for clinics.", brief).ok).toBe(false);
+    expect(checkSpoken("It makes you a top rated clinic.", brief).ok).toBe(false);
   });
   it("lets a clinic's own name through even when it contains a banned word", () => {
     expect(checkSpoken("The answer named Premier Dental for that question.", brief).ok).toBe(true);
@@ -268,8 +293,13 @@ describe("the brief", () => {
     expect(text).toContain("It recommended Birchwood Dental Clinic in 1 of them");
     expect(text).toContain('Question 1: "I just moved to Orillia');
     expect(text).toContain("200 CAD, one time");
-    expect(text).toContain("150 CAD for the first month, then 50 CAD a month");
-    expect(b.allowedAmounts.sort((x, y) => x - y)).toEqual([50, 150, 200]);
+    expect(text).toContain("Visibility: 200 CAD a month, month to month.");
+    expect(text).toContain("Growth: 450 CAD a month, plus 500 CAD setup, 6-month minimum, then month to month.");
+    expect(text).toContain("Transformation:");
+    expect(text).toContain("It is never priced on a call.");
+    expect(text).not.toMatch(/900|150 CAD|Monthly reports|Full service plan/);
+    expect(text).toContain("credited to your first month");
+    expect(b.allowedAmounts.sort((x, y) => x - y)).toEqual([200, 450, 500]);
     expect(b.names).toContain("Lakeside Smiles (invented)");
     expect(b.canEmailLinks).toBe(true);
     expect(systemPrompt(b, "outbound", "asked")).toContain("You are an AI assistant");
@@ -281,11 +311,19 @@ describe("the brief", () => {
   });
   it("does not sell a customer the plan it already has", async () => {
     const r = await clinicWithReport();
-    await db()`insert into subscriptions (clinic_id, stripe_subscription_id, status, plan) values (${r.clinicId}, 'sub_1', 'active', 'monthly')`;
+    await db()`insert into subscriptions (clinic_id, stripe_subscription_id, status, plan) values (${r.clinicId}, 'sub_1', 'active', 'growth')`;
     const b = (await briefForClinic(r.clinicId))!;
-    expect(b.plan).toBe("monthly");
-    expect(b.offers).toEqual([]);
-    expect(offerLines("reports").join(" ")).not.toContain("one time, no contract");
+    expect(b.plan).toBe("growth");
+    expect(b.offers.filter((l) => /^(Full report|Visibility|Growth):/.test(l))).toEqual([]);
+    expect(b.offers.join(" ")).toContain("Transformation:");
+    expect(briefText(b)).toContain("already a customer (Growth)");
+    // a clinic on the largest plan, or on a plan we cannot name, is offered nothing
+    expect(offerLines("transformation")).toEqual([]);
+    await db()`update subscriptions set plan = null`;
+    expect((await briefForClinic(r.clinicId))!.offers).toEqual([]);
+    // a plan from before the offer changed counts as Visibility
+    expect(offerLines("monthly").join(" ")).not.toMatch(/^Visibility:|Full report and fix files:/);
+    expect(offerLines("report").join(" ")).not.toContain("Full report and fix files:");
   });
   it("has no report for a caller we cannot place", async () => {
     const b = await generalBrief();
@@ -369,7 +407,7 @@ describe("asking for a call", () => {
     expect(html).toContain(`href="/call/${r.token}"`);
     expect(html).toContain('href="tel:+17055550199"');
     expect(html).toContain(`${code.slice(0, 3)} ${code.slice(3)}`);
-    expect(html).toContain("an AI assistant");
+    expect(html).toContain("Ansa, our AI assistant, can phone you");
     expect(callLinkHtml(r.token)).not.toContain("tel:");
   });
 });
@@ -450,14 +488,37 @@ describe("placing a call", () => {
 describe("the conversation", () => {
   beforeEach(goLive);
 
-  it("opens by saying who is calling, that it is an AI, why, and that the call is transcribed", async () => {
+  it("opens by saying who is calling, that it is an AI and that the call is transcribed, with one ice-breaker", async () => {
     const c = await answeredCall();
     const [first] = await turns(c.id);
     expect(first.role).toBe("agent");
-    expect(first.text).toMatch(/this is the In The Answer Copilot\. I'm an AI assistant\./);
-    expect(first.text).toMatch(/asked on our website for this call/);
-    expect(first.text).toMatch(/transcribed/);
+    expect(first.text).toBe("Hi, this is Ansa, the AI assistant from In The Answer. This call is transcribed so our team can review it. Thanks for asking us to call. I'll keep it to a few minutes. Is now still a good time to go through the report for Test Dental?");
+    expect(first.text).not.toMatch(/recorded/); // no audio is kept: "transcribed" is the true word
     expect((await call(c.id)).status).toBe("in_progress");
+  });
+  it("picks exactly one ice-breaker from the approved set, by how the call came about", () => {
+    const morning = torontoToUtc("2026-11-10", "09:45"), midday = torontoToUtc("2026-11-10", "13:00"), late = torontoToUtc("2026-11-10", "16:00");
+    expect(iceBreaker({ direction: "outbound", source: "web_form", now: morning })).toBe(ICE_BREAKERS.call_me);
+    expect(iceBreaker({ direction: "outbound", source: "email_reply", now: late })).toBe(ICE_BREAKERS.reply);
+    expect(iceBreaker({ direction: "outbound", source: "phone_request", now: morning })).toBe(ICE_BREAKERS.morning);
+    expect(iceBreaker({ direction: "outbound", source: "in_person", now: late })).toBe(ICE_BREAKERS.end_of_day);
+    expect(iceBreaker({ direction: "outbound", source: "phone_request", now: midday })).toBe(ICE_BREAKERS.call_me);
+    expect(iceBreaker({ direction: "inbound", clinicKnown: true })).toBe(ICE_BREAKERS.inbound);
+    expect(iceBreaker({ direction: "inbound" })).toBe(ICE_BREAKERS.inbound_unknown);
+    const all = Object.values(ICE_BREAKERS) as string[];
+    for (const g of [
+      outboundGreeting({ contactName: "Dana", clinic: "Test Dental", source: "email_reply" }, late),
+      outboundGreeting({ contactName: null, clinic: "Test Dental", source: "phone_request" }, morning),
+      inboundGreeting("Test Dental"), inboundGreeting(null),
+    ]) {
+      expect(g).toMatch(/this is Ansa, the AI assistant from In The Answer\. This call is transcribed/);
+      expect(all.filter((x) => g.includes(x)).length, g).toBeGreaterThanOrEqual(1);
+      expect(all.filter((x) => g.includes(x) && !all.some((y) => y !== x && y.includes(x) && g.includes(y))).length, g).toBe(1);
+    }
+    expect(outboundGreeting({ contactName: "Dana", clinic: "Test Dental", source: "email_reply" }, late)).toBe(
+      "Hi Dana, this is Ansa, the AI assistant from In The Answer. This call is transcribed so our team can review it. Thanks for your reply the other day. This should be quick. Is now still a good time to go through the report for Test Dental?");
+    expect(outboundGreeting({ contactName: null, clinic: "Test Dental", source: "phone_request" }, morning)).toBe(
+      "Hi, this is Ansa, the AI assistant from In The Answer. This call is transcribed so our team can review it. Thanks for making time this morning. You asked us to call about the report for Test Dental. Is now still a good time?");
   });
   it("passes the brief and the transcript to the model and speaks its line", async () => {
     const c = await answeredCall();
@@ -516,15 +577,21 @@ describe("the conversation", () => {
     expect(task.body).toContain("Wants to discuss a refund");
     expect(await db()`select 1 from messages where type='owner_alert'`).toHaveLength(1);
   });
-  it("queues the links by email for review when asked, to the address on file", async () => {
+  it("emails the report and the plans at once when asked, in the program's own words, to the address on file", async () => {
     const c = await answeredCall();
-    script = [line("I will have it sent to the address your report went to. Sam Owner will call you about the contract. Goodbye.", "end_call", { email_links: true, handoff_note: "Wants to talk about the contract." })];
+    script = [line("I'll have it sent to the address your report went to. Sam Owner will call you about the contract. Goodbye.", "end_call", { send: "report", handoff_note: "Wants to talk about the contract." })];
     const xml = await onTurn(c.token, { speech: "Email me the options, and have the owner call me about the contract. Bye." });
     expect(xml).toContain("<Hangup/>");
     expect(await db()`select 1 from owner_tasks where kind='escalation'`).toHaveLength(1);
-    const [m] = await db()`select type::text, to_email, status::text, body_text from messages where type='interested_reply'`;
-    expect(m).toMatchObject({ type: "interested_reply", to_email: "info@testdental.example", status: "pending_review" });
-    expect(m.body_text).toContain(`/buy/${(await db()<{ token: string }[]>`select token from reports limit 1`)[0].token}/monthly`);
+    const [m] = await db()`select type::text, to_email, status::text, body_text from messages where type='requested_on_call'`;
+    // fixed wording, nothing written by the model: it is not held for review
+    expect(m).toMatchObject({ type: "requested_on_call", to_email: "info@testdental.example", status: "approved" });
+    expect((await call(c.id)).signals).toMatchObject({ sent: ["report"], choice: "talk_to_person" });
+    const buy = `/buy/${(await db()<{ token: string }[]>`select token from reports limit 1`)[0].token}`;
+    expect(m.body_text).toContain(`- Visibility: 200 CAD a month. We publish the answer pages, fix the listings and retest every month. https://intheanswer.test${buy}/visibility`);
+    expect(m.body_text).toContain(`${buy}/growth`);
+    expect(m.body_text).toContain(`${buy}/report`);
+    expect(m.body_text).not.toMatch(/\/monthly|\/reports|\/transformation/);
     expect(m.body_text).toContain("In The Answer Inc.");
   });
   it("covers a model failure with a spoken line, and ends politely after two", async () => {
@@ -537,8 +604,12 @@ describe("the conversation", () => {
   });
   it("asks once after a silence, then lets the line go", async () => {
     const c = await answeredCall();
-    expect(await onTurn(c.token, { speech: "" })).toContain("Are you still there?");
-    expect(await onTurn(c.token, {})).toContain("<Hangup/>");
+    const still = await onTurn(c.token, { speech: "" });
+    expect(still).toContain("Are you still there?");
+    expect(still).toContain('timeout="6"'); // after a question the caller gets longer to answer
+    const bye = await onTurn(c.token, {});
+    expect(bye).toContain("<Hangup/>");
+    expect(bye).not.toContain("summary"); // nothing was said yet: there is nothing to summarise
     expect(asked).toHaveLength(0);
     expect((await call(c.id)).outcome).toBe("no_conversation");
   });
@@ -563,6 +634,250 @@ describe("the conversation", () => {
     await db()`update calls set status='completed' where id=${c.id}`;
     expect(await onTurn(c.token, { speech: "hello" })).toContain("<Hangup/>");
     expect(await onTurn("nope".repeat(6), { speech: "hello" })).toContain("<Hangup/>");
+  });
+});
+
+describe("the playbook", () => {
+  const ALL: Switches = { promises: [...PROMISE_ORDER], pillars: [...PILLAR_ORDER] };
+  const st = (over: Partial<PlaybookState> = {}): PlaybookState => ({ pains: [], buyingSignal: false, declined: false, pillarsNamed: [], reassured: false, ...over });
+  const codes = (text: string, state: PlaybookState, s: Switches = DEFAULT_SWITCHES) => checkPlaybook(text, state, s).flags.map((f) => f.code);
+
+  it("names a part of the service only when the caller's own answer points to it", () => {
+    const receptionist = bridgeFor("missed_calls");
+    expect(codes(receptionist, st())).toEqual(["pillar_without_pain"]);
+    expect(codes(receptionist, st({ pains: ["missed_calls"] }))).toEqual([]);
+    expect(codes(bridgeFor("old_website"), st({ pains: ["missed_calls"] }))).toEqual(["pillar_without_pain"]);
+    expect(codes(bridgeFor("reviews"), st({ pains: ["reviews"] }))).toEqual([]);
+    // being found by AI assistants is what every call is about: it needs no pain on record
+    expect(codes(bridgeFor("not_in_ai_answers"), st())).toEqual([]);
+    expect(codes("Your clinic was recommended in 1 of the 6 answers.", st())).toEqual([]);
+    // the caller asked what a plan includes: its contents may be described
+    expect(codes("Growth includes a rebuilt website and an AI receptionist for missed calls.", st({ buyingSignal: true }))).toEqual([]);
+    // the one-line answer to "what else do you do?" is always allowed
+    expect(codes("We test how patients find a clinic through AI assistants, then rebuild and run what that depends on: the website, AI tools, integrations and reporting, under one monthly plan.", st())).toEqual([]);
+  });
+  it("lets the discovery questions through: asking about the clinic is not offering", () => {
+    expect(codes("When someone calls after hours or when the front desk is busy, what usually happens to that call?", st())).toEqual([]);
+    expect(codes("Thanks, that helps. When was your website last rebuilt, and who looks after it?", st())).toEqual([]);
+    expect(codes("How do you ask patients for reviews now, and who replies to them?", st())).toEqual([]);
+    // the same words as an offer are still an offer
+    expect(codes("Shall we set up an AI receptionist for your after-hours calls?", st())).toEqual(["pillar_without_pain"]);
+    expect(codes("Got it. We rebuild the site fully and keep it current.", st())).toEqual(["pillar_without_pain"]);
+  });
+  it("never lists the whole service: at most two parts on one call", () => {
+    const two = st({ pains: ["missed_calls", "old_website", "too_many_vendors"], pillarsNamed: ["front_desk", "website"] });
+    expect(codes(bridgeFor("too_many_vendors"), two)).toEqual(["too_many_pillars"]);
+    expect(codes(bridgeFor("missed_calls"), two)).toEqual([]); // one already named may come up again
+  });
+  it("does not offer a part that is switched off, whatever the caller said", () => {
+    const noFrontDesk: Switches = { ...DEFAULT_SWITCHES, pillars: ["found", "website", "systems", "proof"] };
+    expect(painsOffered(noFrontDesk)).toEqual(["old_website", "too_many_vendors", "not_in_ai_answers"]);
+    expect(codes(bridgeFor("missed_calls"), st({ pains: ["missed_calls"] }), noFrontDesk)).toEqual(["pillar_without_pain"]);
+    expect(PAINS).toHaveLength(5);
+  });
+  it("states support, warranty and security only in the published sentence, and only once", () => {
+    const sentence = reassurance()!;
+    expect(codes(`Good question. ${sentence}`, st())).toEqual([]);
+    expect(codes(sentence, st({ reassured: true }))).toEqual(["reassurance_twice"]);
+    expect(codes("We offer 24/7 support and a full warranty on everything.", st())).toEqual(["promise_wording"]);
+    expect(codes("Someone will fix it within one hour, free of charge.", st())).toEqual(["promise_wording"]);
+    // a promise that is switched off is not said even in its own words
+    const none: Switches = { ...DEFAULT_SWITCHES, promises: [] };
+    expect(reassurance(none)).toBeNull();
+    expect(codes(sentence, st(), none)).toEqual(["promise_wording"]);
+    expect(codes(reassurance(ALL)!, st(), ALL)).toEqual([]);
+  });
+  it("makes one offer: after a not-now, no price is said again unless the caller asks", () => {
+    expect(codes("Visibility is 200 dollars a month.", st({ declined: true }))).toEqual(["offer_after_no"]);
+    expect(codes("Visibility is 200 dollars a month.", st({ declined: true, buyingSignal: true }))).toEqual([]);
+    expect(codes("Of course. Is there anything else in the report I can explain?", st({ declined: true }))).toEqual([]);
+  });
+});
+
+describe("the playbook on a call", () => {
+  beforeEach(goLive);
+
+  it("gives the model the playbook, and keeps what the caller showed on the call", async () => {
+    const c = await answeredCall();
+    script = [
+      line("Got it. How do most new patients find you today?", "continue", { stage: "discovery" }),
+      line("That makes sense. We set up an AI receptionist that answers after-hours and overflow calls, books or takes messages, and says it's an AI.", "continue", { stage: "bridge", pains: ["missed_calls"] }),
+    ];
+    await onTurn(c.token, { speech: "Yes, I'm the owner. Go ahead." });
+    const prompt = systemPrompt(asked[0].brief, "outbound", "asked");
+    expect(prompt).toContain("You are Ansa, the AI assistant that speaks on the phone for In The Answer.");
+    expect(prompt).toContain('(missed_calls) "What happens when someone calls after hours or when the front desk is busy?"');
+    expect(prompt).toContain(`Say this sentence word for word: "${reassurance()}"`);
+    expect(prompt).toContain("Transformation is never priced on a call");
+    expect(prompt).toContain("you never say them"); // review numbers
+    expect(asked[0].progress).toMatchObject({ pains: [], reassured: false, declined: false, pendingCheckout: null });
+    const xml = await onTurn(c.token, { speech: "Honestly we miss a lot of calls after five." });
+    expect(xml).toContain("AI receptionist");
+    const after = await call(c.id);
+    expect(after.signals).toMatchObject({ pains: ["missed_calls"], stage: "bridge" });
+    script = [line("Right.")];
+    await onTurn(c.token, { speech: "Okay." });
+    expect(asked[2].progress?.pains).toEqual(["missed_calls"]);
+  });
+
+  it("stops a part of the service nobody asked about, and stays on the report instead of ending the call", async () => {
+    const c = await answeredCall();
+    script = [line("We also rebuild websites and connect your booking system, and we set up an AI receptionist.", "continue", { stage: "bridge" })];
+    const xml = await onTurn(c.token, { speech: "Okay, what was the result?" });
+    expect(xml).toContain("Let me stay with what&apos;s in your report.");
+    expect(xml).toContain("<Gather");
+    const [, , stopped] = await turns(c.id);
+    expect(stopped.blocked_text).toContain("rebuild websites");
+    const after = await call(c.id);
+    expect(after.status).toBe("in_progress");
+    expect(after.signals).toMatchObject({ playbook_blocks: 1 });
+    expect(after.signals.guard_blocks).toBeUndefined(); // not a wording fault: it does not count toward ending the call
+  });
+
+  it("reads the plan back in the published words, and sends the checkout link only after a clear yes", async () => {
+    const c = await answeredCall();
+    const sql = db();
+    script = [
+      line("Great, I'll set that up.", "continue", { stage: "offer", buying_signal: true, send: "checkout", plan: "growth" }),
+      line("Sure, take your time.", "continue", { stage: "offer" }),
+      line("Okay.", "continue", { stage: "offer", send: "checkout", plan: "growth" }),
+      line("Perfect.", "continue", { stage: "offer", send: "checkout", plan: "growth", confirmed: true }),
+    ];
+    const back = await onTurn(c.token, { speech: "How do we start with the Growth one?" });
+    expect(back).toContain(readBack("growth").replace(/'/g, "&apos;"));
+    expect(back).not.toContain("set that up"); // the read-back is the program's line, not the model's
+    expect(await sql`select 1 from messages where type='requested_on_call'`).toHaveLength(0);
+    // a maybe is not a yes: the read-back lapses, and a later yes needs a new read-back
+    await onTurn(c.token, { speech: "Hmm, let me think about the setup fee." });
+    expect((await call(c.id)).status).toBe("in_progress");
+    const again = await onTurn(c.token, { speech: "Okay, let's do it." });
+    expect(again).toContain("Just to confirm: the Growth plan");
+    expect(asked[3]?.progress?.pendingCheckout ?? asked[2].progress?.pendingCheckout).toBeDefined();
+    const sent = await onTurn(c.token, { speech: "Yes, that's right." });
+    expect(asked[3].progress?.pendingCheckout).toBe("growth");
+    expect(sent).toContain(linkSent("growth").replace(/'/g, "&apos;"));
+    const [m] = await sql`select status::text, subject, body_text, to_email from messages where type='requested_on_call'`;
+    expect(m).toMatchObject({ status: "approved", subject: "Your checkout link: Growth", to_email: "info@testdental.example" });
+    const [rep] = await sql<{ token: string }[]>`select token from reports limit 1`;
+    expect(m.body_text).toContain(`https://intheanswer.test/buy/${rep.token}/growth`);
+    expect(m.body_text).toContain("Growth: 450 CAD a month, plus 500 CAD setup. 6-month minimum, then month to month.");
+    expect(m.body_text).toContain("We never take card details by phone or by email.");
+    expect(m.body_text).toContain("credited to your first month");
+    expect((await call(c.id)).signals).toMatchObject({ plan: "growth", choice: "start_now", sent: ["checkout:growth"] });
+    // saying yes twice sends one email
+    script = [line("Done.", "continue", { send: "checkout", plan: "growth", confirmed: true })];
+    await onTurn(c.token, { speech: "Yes." });
+    expect(await sql`select 1 from messages where type='requested_on_call'`).toHaveLength(1);
+  });
+
+  it("does not send a checkout link without the read-back, to a clinic already on a plan, or with no address", async () => {
+    const c = await answeredCall();
+    const sql = db();
+    // "confirmed" on the first mention is not a yes to anything that was read out
+    script = [line("Sending it now.", "continue", { buying_signal: true, send: "checkout", plan: "visibility", confirmed: true })];
+    expect(await onTurn(c.token, { speech: "Send me the link for the 200 one." })).toContain("Just to confirm: the Visibility plan, 200 dollars a month, month to month.");
+    expect(await sql`select 1 from messages where type='requested_on_call'`).toHaveLength(0);
+    // already a customer: the change is arranged by email, by a person
+    await sql`insert into subscriptions (clinic_id, stripe_subscription_id, status, plan) values (${c.clinicId}, 'sub_1', 'active', 'visibility')`;
+    const other = await answeredCallFor(c);
+    script = [line("Okay.", "continue", { buying_signal: true, send: "checkout", plan: "growth" })];
+    expect(await onTurn(other.token, { speech: "We want to move up to Growth." })).toContain("the change is arranged by email");
+    expect(await sql`select 1 from owner_tasks where title like 'Phone call:%'`).toHaveLength(1);
+    expect(await sql`select 1 from messages where type='requested_on_call'`).toHaveLength(0);
+  });
+
+  it("never prices the plan that is quoted: it becomes a callback for the owner", async () => {
+    const c = await answeredCall();
+    script = [
+      line("Transformation starts at 900 dollars a month.", "continue", { stage: "offer", buying_signal: true }),
+      line("That one is quoted after a short review, so Sam Owner will call you to go through it.", "continue", { stage: "offer", handoff_note: "Wants a quote for Transformation: connect their booking system. Call Tuesday afternoon." }),
+    ];
+    const blocked = await onTurn(c.token, { speech: "What does the big plan cost?" });
+    expect(blocked).not.toContain("900");
+    const ok = await onTurn(c.token, { speech: "Okay, have someone call me Tuesday afternoon." });
+    expect(ok).toContain("quoted after a short review");
+    expect((await db()`select body from owner_tasks where kind='escalation'`)[0].body).toContain("Tuesday afternoon");
+    expect((await call(c.id)).signals).toMatchObject({ choice: "talk_to_person" });
+  });
+
+  it("with someone who is not the owner or manager, records it and does not sell", async () => {
+    const c = await answeredCall();
+    script = [line("No problem. When is a good time to reach the owner? I can email the report in the meantime.", "continue", { stage: "role", not_decision_maker: true, send: "report", handoff_note: "Front desk answered. Owner is Dr. Lee, in on Thursday mornings." })];
+    await onTurn(c.token, { speech: "I'm just the receptionist, Dr. Lee is in Thursday mornings." });
+    const after = await call(c.id);
+    expect(after.signals).toMatchObject({ not_decision_maker: true, sent: ["report"] });
+    expect(await db()`select 1 from messages where type='requested_on_call'`).toHaveLength(1);
+  });
+
+  it("does not email anything on the turn that is still asking whether to", async () => {
+    const c = await answeredCall();
+    const sql = db();
+    script = [
+      line("Fair enough. Would it help if I emailed you the full report and the plans?", "continue", { send: "report" }),
+      line("Done, it's on its way to the address your report went to.", "continue", { send: "report" }),
+    ];
+    await onTurn(c.token, { speech: "It's a lot to take in." });
+    expect(await sql`select 1 from messages where type='requested_on_call'`).toHaveLength(0);
+    await onTurn(c.token, { speech: "Yes please." });
+    expect(await sql`select 1 from messages where type='requested_on_call'`).toHaveLength(1);
+  });
+
+  it("answers 'how did you get this number?' from the request the call rests on", () => {
+    expect(numberAnswer("outbound", "Someone at the clinic asked for this call on the page their report links to, typed in this number, and agreed there to be called by an AI assistant."))
+      .toBe("Someone at your clinic asked for this call on your report page and typed in this number.");
+    expect(numberAnswer("outbound", "The clinic replied to our email and asked to be called at this number about its report.")).toBe("Your clinic replied to our email and asked us to call this number.");
+    expect(numberAnswer("outbound", "The clinic asked to be called at this number about its report; our team recorded the request and scheduled this call.")).toBe("Your clinic asked us to call this number about its report.");
+    expect(numberAnswer("inbound", "The caller phoned In The Answer's number.")).toMatch(/You phoned our number/);
+  });
+
+  it("after a think-it-over, writes the summary for the owner to approve, and one agreed follow-up three business days later", async () => {
+    const c = await answeredCall();
+    const sql = db();
+    script = [
+      line("Of course. I'll email a short summary of today's call and the plans. Would one follow-up email in a few days be all right?", "continue", { stage: "offer", buying_signal: true, send: "summary" }),
+      line("Thanks. You'll have the summary by email. Goodbye.", "end_call", { stage: "close", follow_up_ok: true }),
+    ];
+    await onTurn(c.token, { speech: "What does it cost? Actually, let me think it over." });
+    await onTurn(c.token, { speech: "Yes, one email is fine. Bye." });
+    expect((await call(c.id)).signals).toMatchObject({ summary_wanted: true, choice: "think_it_over", follow_up_ok: true });
+    let asksFor: boolean | undefined;
+    setReviewer(async (_b, _t, opts) => {
+      asksFor = opts?.summaryForClinic;
+      return { review: { summary: "Wants to think it over.", outcome: "interested", follow_up: null, unsupported: [], clinic_summary: "We went through the result of your report: Test Dental was recommended in 1 of the 6 answers. You asked about the plans and wanted time to think." }, usage: null, costUsd: 0 };
+    });
+    await reviewCall(c.id);
+    expect(asksFor).toBe(true);
+    const [summary] = await sql`select status::text, subject, body_text, review_reason from messages where type='interested_reply'`;
+    expect(summary).toMatchObject({ status: "pending_review", subject: "A summary of our call" });
+    expect(summary.review_reason).toMatch(/written by the AI/);
+    expect(summary.body_text).toContain("Thank you for speaking with Ansa, our AI assistant.");
+    expect(summary.body_text).toContain("recommended in 1 of the 6 answers");
+    expect(summary.body_text).toContain("- Growth: 450 CAD a month, plus 500 CAD setup, 6-month minimum, then month to month.");
+    // the follow-up: once, three business days on, and it waits for the owner too
+    const [job] = await sql<{ run_after: Date; idempotency_key: string }[]>`select run_after, idempotency_key from jobs where kind='call_follow_up'`;
+    expect(job.idempotency_key).toBe(`call_follow_up:${c.id}`);
+    expect(job.run_after.getTime() - Date.now()).toBeGreaterThan(2.5 * 86400e3);
+    expect(await callFollowUp(c.id)).toEqual({ queued: true });
+    expect(await callFollowUp(c.id)).toEqual({ queued: false });
+    const follow = (await sql`select status::text, body_text from messages where subject='Following up on our call'`);
+    expect(follow).toHaveLength(1);
+    expect(follow[0].status).toBe("pending_review");
+    expect(follow[0].body_text).toContain("there will be no other");
+    // not sent to a clinic that has bought in the meantime
+    await sql`delete from messages where subject='Following up on our call'`;
+    await sql`update clinics set status='customer' where id=${c.clinicId}`;
+    expect(await callFollowUp(c.id)).toMatchObject({ queued: false, reason: "clinic is customer" });
+  });
+
+  it("tells a caller who goes silent mid-call that a summary follows by email", async () => {
+    const c = await answeredCall();
+    script = [line("It was recommended in 1 of the 6 answers. Does that match what you'd expect?")];
+    await onTurn(c.token, { speech: "Yes, go ahead." });
+    await onTurn(c.token, { speech: "" });
+    const bye = await onTurn(c.token, { speech: "" });
+    expect(bye).toContain("we&apos;ll email you a summary");
+    expect(bye).toContain("<Hangup/>");
+    expect((await call(c.id)).signals).toMatchObject({ summary_wanted: true });
   });
 });
 
@@ -600,7 +915,7 @@ describe("the end of a call", () => {
     script = [line("Your clinic was recommended in 1 of 6.")];
     await onTurn(c.token, { speech: "What was the result?" });
     setReviewer(async (_b, t) => ({
-      review: { summary: "Spoke to the front desk about the result.", outcome: "interested", follow_up: "Send the full report link.", unsupported: [{ said: t.find((x) => x.role === "agent")!.text, issue: "Not in the brief." }] },
+      review: { summary: "Spoke to the front desk about the result.", outcome: "interested", follow_up: "Send the full report link.", unsupported: [{ said: t.find((x) => x.role === "agent")!.text, issue: "Not in the brief." }], clinic_summary: null },
       usage: null, costUsd: 0,
     }));
     expect(await reviewCall(c.id)).toEqual({ outcome: "interested", unsupported: 1 });
@@ -640,7 +955,7 @@ describe("a clinic phones us", () => {
     const r = await clinicWithReport();
     const code = await ensureCallCode(r.reportId);
     const hello = await onIncoming({ callSid: "CAin1", from: "+14165550123" });
-    expect(hello).toMatch(/an AI assistant/);
+    expect(hello).toContain("Hi, this is Ansa, the AI assistant from In The Answer. This call is transcribed so our team can review it. Thanks for calling in.");
     expect(hello).toMatch(/tell me the clinic&apos;s name and its city, or key in the six digit code/);
     expect(hello).toContain(`voice="${DEFAULT_CALL_VOICE}"`);
     expect(hello).toContain('numDigits="6"');
@@ -744,23 +1059,23 @@ describe("a clinic phones us", () => {
     let seen: TranscriptLine[] = [];
     setReviewer(async (_brief, transcript) => {
       seen = transcript;
-      return { review: { summary: "Asked about the result.", outcome: "asked_questions", follow_up: null, unsupported: [] }, usage: null, costUsd: 0 };
+      return { review: { summary: "Asked about the result.", outcome: "asked_questions", follow_up: null, unsupported: [], clinic_summary: null }, usage: null, costUsd: 0 };
     });
     await reviewCall(c.id);
     const agentLines = seen.filter((t) => t.role === "agent").map((t) => [t.fixed, t.text.slice(0, 28)]);
     expect(agentLines).toEqual([
-      [true, "Hi, you've reached the In Th"],
+      [true, "Hi, this is Ansa, the AI ass"],
       [true, "I found Test Dental in Barri"],
       [true, "Thanks. I have the report fo"],
       [false, "It was recommended in 1 of t"],
       [true, FALLBACK_LINE.slice(0, 28)],
     ]);
     const shown = reviewTranscript(seen);
-    expect(shown).toContain("Service line: Hi, you've reached the In The Answer Copilot.");
+    expect(shown).toContain("Service line: Hi, this is Ansa, the AI assistant from In The Answer.");
     expect(shown).toContain("Assistant: It was recommended in 1 of the 6 answers.");
     expect(shown).toContain("Caller: What was the result?");
     expect(shown).toContain('Note: Looked up "Test Dental, Barrie"');
-    expect(shown).not.toMatch(/Assistant: (Hi, you've reached|I found|Thanks\. I have the report)/);
+    expect(shown).not.toMatch(/Assistant: (Hi, this is Ansa|I found|Thanks\. I have the report)/);
   });
   it("speaks in the voice chosen in Settings", async () => {
     await db()`update app_settings set call_voice=${CALL_VOICES[1].id} where id`;

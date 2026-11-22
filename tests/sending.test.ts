@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { closeDb, db } from "@/lib/db";
-import { resetEnvForTests } from "@/lib/env";
+import { chargesHst, resetEnvForTests } from "@/lib/env";
+import { emailOfferLines, priceAnswer } from "@/lib/offer";
 import { setMailProvider, type MailEvent, type MailProvider, type OutboundMail } from "@/lib/adapters/mail";
 import { sendMessage, queueDueFollowUps, identificationProblems } from "@/lib/sending/send";
 import { queueMessage } from "@/lib/sending/outbox";
@@ -247,12 +248,94 @@ describe("replies", () => {
     expect(m.replied_at).not.toBeNull();
     expect((await db()`select 1 from messages where type='owner_alert'`).length).toBe(1);
 
-    const res = await classifyInbound(r.id, async () => ({ data: { classification: "question", reason: "asks the price", answer_key: "price" }, costUsd: 0, usage: {} }));
-    expect(res).toMatchObject({ classification: "question", drafted: true, escalated: false });
+    // The price answer is written from the published offer whatever is stored under its key: here the
+    // row still holds the prices from before the plans changed, as it did in production.
+    const [kept] = await db()<{ answer: string }[]>`select answer from approved_answers where key='price'`;
+    const stale = "The full report is 200 CAD. Monthly reports are 150 CAD for the first month, then 50 CAD a month. The full service plan is 200 CAD a month on a 12-month contract.";
+    await db()`update approved_answers set answer=${stale} where key='price'`;
+    try {
+      const res = await classifyInbound(r.id, async () => ({ data: { classification: "question", reason: "asks the price", answer_key: "price" }, costUsd: 0, usage: {} }));
+      expect(res).toMatchObject({ classification: "question", drafted: true, escalated: false });
+    } finally {
+      await db()`update approved_answers set answer=${kept.answer} where key='price'`;
+    }
     const [d] = await db()<{ status: string; body_text: string; inbound_id: string }[]>`select status::text, body_text, inbound_id from messages where type='question_answer'`;
     expect(d.status).toBe("pending_review");
-    expect(d.body_text).toMatch(/200 CAD/);
+    expect(d.body_text).toContain(priceAnswer(chargesHst()));
+    expect(d.body_text).toContain("Growth is 450 CAD a month, plus 500 CAD setup");
+    expect(d.body_text).not.toMatch(/\b150 CAD|\b50 CAD|Monthly reports|full service plan|12-month contract|\{\{/i);
     expect(d.inbound_id).toBe(r.id);
+  });
+
+  it("any other approved answer is sent as the owner approved it, with its placeholders filled in; one worded for the phone is never drafted", async () => {
+    const sql = db();
+    const clinic = await makeClinic({ status: "contacted", contact_count: 1 });
+    await makeMessage({ clinic_id: clinic, status: "sent", sent_at: new Date() });
+    await sql`insert into approved_answers (key, question, answer, channel) values
+              ('t_term', 'Is there a contract?', 'Visibility is {{term:visibility}}. Growth is {{price:growth}}, with a {{term:growth}}.', 'any'),
+              ('t_phone', 'Can you hold?', 'Of course, take your time.', 'phone')`;
+    try {
+      const asked: string[][] = [];
+      const pick = (key: string) => async (_s: string, _b: string, answers: { key: string }[]) => {
+        asked.push(answers.map((a) => a.key));
+        return { data: { classification: "question" as const, reason: "asks", answer_key: key }, costUsd: 0, usage: {} };
+      };
+      const how = await ingestInbound(inbound({ id: "in_how", text: "How did you get this address?" }));
+      expect(await classifyInbound(how.id, pick("how_email"))).toMatchObject({ drafted: true });
+      const [stored] = await sql<{ answer: string }[]>`select answer from approved_answers where key='how_email'`;
+      const [d] = await sql<{ body_text: string }[]>`select body_text from messages where type='question_answer' and inbound_id=${how.id}`;
+      expect(d.body_text).toContain(stored.answer);
+
+      const term = await ingestInbound(inbound({ id: "in_term", text: "Is there a contract?" }));
+      await classifyInbound(term.id, pick("t_term"));
+      const [t] = await sql<{ body_text: string }[]>`select body_text from messages where type='question_answer' and inbound_id=${term.id}`;
+      expect(t.body_text).toContain("Visibility is month to month. Growth is 450 CAD a month, plus 500 CAD setup, with a 6-month minimum, then month to month.");
+      expect(t.body_text).not.toContain("{{");
+
+      // the classifier is not offered the phone answers, and one named anyway is not drafted: the owner answers
+      const hold = await ingestInbound(inbound({ id: "in_hold", text: "Can you hold on?" }));
+      expect(await classifyInbound(hold.id, pick("t_phone"))).toMatchObject({ drafted: false, escalated: true });
+      expect(asked.every((keys) => keys.includes("how_email") && keys.includes("t_term") && !keys.includes("t_phone"))).toBe(true);
+    } finally {
+      await sql`delete from approved_answers where key in ('t_term', 't_phone')`;
+    }
+  });
+
+  it("an interested reply lists the plans the clinic does not have, each with its own checkout link", async () => {
+    const sql = db();
+    const interested = async () => ({ data: { classification: "interested" as const, reason: "wants to start", answer_key: null }, costUsd: 0, usage: {} });
+    const clinic = await makeClinic({ status: "contacted", contact_count: 1 });
+    await makeMessage({ clinic_id: clinic, status: "sent", sent_at: new Date() });
+    // an older teaser that passed the gate, and a newer one that has not: the links use the one that works at checkout
+    await sql`insert into reports (clinic_id, kind, token, data, html, created_at)
+              values (${clinic}, 'teaser', 'teaser-token-0000001', ${sql.json({ verified: true })}, '', now() - interval '2 days'),
+                     (${clinic}, 'teaser', 'teaser-token-0000002', ${sql.json({ verified: false })}, '', now())`;
+    const r = await ingestInbound(inbound({ text: "Yes, we would like to go ahead." }));
+    expect(await classifyInbound(r.id, interested)).toMatchObject({ classification: "interested", drafted: true, escalated: false });
+    const [d] = await sql<{ status: string; body_text: string }[]>`select status::text, body_text from messages where type='interested_reply'`;
+    expect(d.status).toBe("pending_review");
+    const lines = emailOfferLines({ buyBase: "https://intheanswer.test/buy/teaser-token-0000001" });
+    expect(lines).toHaveLength(3);
+    expect(d.body_text).toContain(`You can start with any of these:\n\n${lines.join("\n")}\n\nIf you would rather talk first`);
+    expect(d.body_text).not.toMatch(/\b150 CAD|Monthly reports|Full service plan|\/monthly\b|\/reports\b|teaser-token-0000002/);
+
+    // already on Visibility: only Growth is listed
+    await sql`insert into subscriptions (clinic_id, stripe_subscription_id, status, plan) values (${clinic}, 'sub_1', 'active', 'visibility')`;
+    const again = await ingestInbound(inbound({ id: "in_2", text: "What would the next step up be? We want it." }));
+    await classifyInbound(again.id, interested);
+    const [up] = await sql<{ body_text: string }[]>`select body_text from messages where type='interested_reply' and inbound_id=${again.id}`;
+    expect(up.body_text).toContain(emailOfferLines({ buyBase: "https://intheanswer.test/buy/teaser-token-0000001", has: "visibility" }).join("\n"));
+    expect(up.body_text).toContain("- Growth: 450 CAD a month, plus 500 CAD setup, 6-month minimum, then month to month.");
+    expect(up.body_text).not.toMatch(/- Visibility:|- Full report/);
+
+    // nothing left to list, or no report that can be bought from: the owner answers
+    await sql`update subscriptions set plan='growth' where clinic_id=${clinic}`;
+    const top = await ingestInbound(inbound({ id: "in_3", text: "We want more." }));
+    expect(await classifyInbound(top.id, interested)).toMatchObject({ drafted: false, escalated: true });
+    const other = await makeClinic({ status: "contacted", contact_count: 1, name: "Other Dental", domain: "otherdental.example", website: "https://otherdental.example" });
+    await makeMessage({ clinic_id: other, status: "sent", sent_at: new Date(), to_email: "info@otherdental.example" });
+    const none = await ingestInbound(inbound({ id: "in_4", from: "info@otherdental.example", text: "Interested." }));
+    expect(await classifyInbound(none.id, interested)).toMatchObject({ drafted: false, escalated: true });
   });
 
   it("an unsubscribe request is applied at once without a model", async () => {

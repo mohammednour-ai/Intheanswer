@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { currentOwner } from "@/lib/auth";
 import { sha256 } from "@/lib/tokens";
 import { LIVE_REVIEWS_MARKER, renderLiveReviewTable } from "@/lib/reviews/liveTable";
+import { fillOffer, needsOffer, withoutOffer } from "@/lib/reports/offerSection";
+import { offerContextFor } from "@/lib/reports/offerContext";
 
 import { isAutomatedFetch } from "@/lib/site/viewers";
 import { callOffer } from "@/lib/calls/request";
@@ -18,7 +20,7 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   const { token } = await ctx.params;
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return new Response("Not found", { status: 404 });
   const sql = db();
-  const [r] = await sql<{ id: string; html: string; data: { verified?: boolean; rows?: { namedInstead: string[] }[]; clinic?: { name: string } }; superseded: boolean; clinic_id: string | null; place_id: string | null; city_id: number | null; kind: string; clinic_status: string | null }[]>`
+  const [r] = await sql<{ id: string; html: string; data: { verified?: boolean; rows?: { namedInstead: string[] }[]; clinic?: { name: string }; findingsTotal?: number }; superseded: boolean; clinic_id: string | null; place_id: string | null; city_id: number | null; kind: string; clinic_status: string | null }[]>`
     select r.id, r.html, r.data, r.superseded, r.clinic_id, c.place_id, c.city_id, r.kind::text as kind, c.status::text as clinic_status
     from reports r left join clinics c on c.id = r.clinic_id where r.token=${token}`;
   if (!r) return new Response("Not found", { status: 404 });
@@ -62,6 +64,17 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
       }).catch(() => "");
     }
     html = html.replace(LIVE_REVIEWS_MARKER, table);
+  }
+  // The plans, prices and terms: written in now from src/lib/offer.ts, never stored in the report.
+  // The buttons carry the clinic's own teaser token, and a plan the clinic already has is left out.
+  // If what the clinic has cannot be read, the page is served without plans, never with the wrong ones.
+  if (needsOffer(html)) {
+    const offer = await offerContextFor({
+      clinicId: r.clinic_id,
+      teaserToken: r.kind === "teaser" && r.data?.verified === true ? token : null,
+      findingsTotal: r.kind === "teaser" ? r.data?.findingsTotal : null,
+    }).catch(() => null);
+    html = offer ? fillOffer(html, offer) : withoutOffer(html);
   }
   // The offer to have the report explained by phone: added when the page is served (never to the
   // stored report or its PDF), and only while calls are on and the clinic may be contacted.

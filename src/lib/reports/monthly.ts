@@ -2,6 +2,7 @@ import { db } from "../db";
 import { documentShell, esc } from "./html";
 import { reportHeader, copilotByline } from "./renderTeaser";
 import type { Claim, OwnerFooter, RowStatus } from "./types";
+import { OFFER_UPGRADE_MARKER } from "./offerSection";
 import { SITE_CHECK_LABELS } from "../sitetest/types";
 import { diffSnapshots, type SnapshotDiff } from "../reviews/gbp";
 
@@ -139,7 +140,11 @@ export interface ComparisonData {
   fixed: { key: string; label: string; before: string; now: string }[];
   services: MonthlyServices;
   summary: string[];
-  offer: { monthlyUrl: string } | null;
+  /**
+   * Only on retest reports stored before 23 November 2026. Not read: the plans above the one-time
+   * report are a marker in the stored report, filled from src/lib/offer.ts when it is shown.
+   */
+  offer?: { monthlyUrl?: string } | null;
   limits: string;
   owner: OwnerFooter;
   claims: Claim[];
@@ -189,13 +194,9 @@ export function renderComparisonReport(d: ComparisonData): string {
   const services = monthly
     ? renderMonthlyServices(d.services)
     : d.services.siteChanges.length ? renderMonthlyServices({ reviews: null, siteChanges: d.services.siteChanges, pages: [] }) : "";
-  const offer = d.offer
-    ? `<section class="offer main" style="gap:12px">
-  <div class="row"><div class="label">Full service plan</div><div class="price">200 CAD <span>per month</span></div></div>
-  <ul><li>Every fix from your report installed by us</li><li>New answer pages each month, written for the questions patients ask</li><li>The same questions retested every month, with a before and after like this one</li></ul>
-  <a class="btn" href="${esc(d.offer.monthlyUrl)}">Start the full service plan</a>
-</section>`
-    : "";
+  // A retest follows a one-time purchase: it closes with the plans that do the work every month.
+  // A subscriber's monthly report offers nothing.
+  const offer = monthly ? "" : OFFER_UPGRADE_MARKER;
   const body = `<div class="page">
 ${reportHeader(monthly ? `AI Visibility Report · Monthly report · ${d.cycle}` : "AI Visibility Report · Retest")}
 <div class="who">

@@ -13,6 +13,9 @@ import type { Evidence } from "../pipeline/audit/types";
 import type { UsageLike } from "../adapters/claude";
 import { htmlToPdf } from "./pdf";
 import { buildFullReportData, renderFullReport, type FullReportData } from "./fullReport";
+import { LEGACY_PLAN, TIERS, isTierKey, type TierKey } from "../offer";
+import { fillOffer } from "./offerSection";
+import { offerContextFor } from "./offerContext";
 
 /**
  * Fulfilment of a paid order: build the full report from stored evidence, run
@@ -177,7 +180,15 @@ export async function verifyFullReport(
 
 export const fullReportUrl = (token: string) => `${env().APP_URL}/r/${token}`;
 
-export function deliveryEmail(x: { data: FullReportData; reportUrl: string; pdf: boolean; intakeUrl: string | null; monthlyReports?: boolean }): { subject: string; bodyText: string } {
+/**
+ * The email that delivers the full report. `plan` is what was bought (a key from src/lib/offer.ts);
+ * `alreadyHas` is true for a clinic that bought the report first and then started a plan: it is not
+ * told its report is new.
+ */
+export function deliveryEmail(x: { data: FullReportData; reportUrl: string; pdf: boolean; intakeUrl: string | null; plan?: TierKey; alreadyHas?: boolean }): { subject: string; bodyText: string } {
+  const tier = TIERS[x.plan ?? "report"];
+  const monthly = tier.kind === "subscription";
+  const yourReport = x.alreadyHas ? `Your full report for ${x.data.clinic.name}, the one you already have:` : `Your full report for ${x.data.clinic.name}:`;
   const d = x.data;
   const parts = [`${d.findings.length} ${d.findings.length === 1 ? "finding" : "findings"}, each with what we saw and the fix`];
   if (d.siteTest) parts.push("the results of the full site test");
@@ -186,23 +197,24 @@ export function deliveryEmail(x: { data: FullReportData; reportUrl: string; pdf:
   const lines = ["Hello,", ""];
   if (x.intakeUrl) {
     lines.push(
-      "Welcome to the full service plan. Two things to start.",
+      `Welcome to ${tier.inSentence}. Two things to start.`,
       "",
-      `1. Your full report for ${d.clinic.name}:`,
+      `1. ${yourReport}`,
       x.reportUrl,
       "",
       "2. A short form about your website, so we can begin the work:",
       x.intakeUrl,
       "Please do not put passwords in the form.",
     );
-  } else if (x.monthlyReports) {
+  } else if (monthly) {
     lines.push(
-      "Welcome to monthly reports.",
+      `Welcome to ${tier.inSentence}.`,
       "",
-      `Your first full report for ${d.clinic.name} is ready:`,
+      yourReport,
       x.reportUrl,
       "",
       "Each month we retest the same questions and your website, and send you the updated report.",
+      "We will write separately to arrange access to your website, so we can publish the answer pages and the fixes.",
     );
   } else {
     lines.push(`Your full report for ${d.clinic.name} is ready:`, x.reportUrl);
@@ -221,9 +233,7 @@ export function deliveryEmail(x: { data: FullReportData; reportUrl: string; pdf:
     "--",
     signature(),
   );
-  const subject = x.intakeUrl ? `Welcome to the full service plan: ${d.clinic.name}`
-    : x.monthlyReports ? `Your first monthly report: ${d.clinic.name}`
-    : `Your full report: ${d.clinic.name}`;
+  const subject = monthly ? `Welcome to ${tier.inSentence}: ${d.clinic.name}` : `Your full report: ${d.clinic.name}`;
   return { subject, bodyText: lines.join("\n") };
 }
 
@@ -242,14 +252,32 @@ interface StoredFull extends FullReportData {
 
 export async function buildAndDeliverFullReport(orderId: string, deps: FullReportDeps = {}) {
   const sql = db();
-  const [order] = await sql<{ id: string; clinic_id: string | null; kind: string; plan: string | null; status: string; customer_email: string | null; report_id: string | null }[]>`
-    select id, clinic_id, kind, plan, status, customer_email, report_id from orders where id = ${orderId}`;
+  const [order] = await sql<{ id: string; clinic_id: string | null; kind: string; plan: string | null; status: string; customer_email: string | null; report_id: string | null; credit_order_id: string | null }[]>`
+    select id, clinic_id, kind, plan, status, customer_email, report_id, credit_order_id from orders where id = ${orderId}`;
   if (!order) throw new PermanentJobError(`order ${orderId} not found`);
   if (!["paid", "partially_refunded"].includes(order.status)) return { skipped: `order is ${order.status}` };
   if (!order.clinic_id) throw new PermanentJobError("order has no clinic");
-  // the full service plan (website work, intake form); monthly reports get the report only
-  const monthly = order.kind === "subscription" && order.plan !== "reports";
-  const monthlyReports = order.kind === "subscription" && order.plan === "reports";
+  // What was bought, as the offer names it (an order from before the plans changed maps to the plan that replaced it).
+  const subscriber = order.kind === "subscription";
+  const plan: TierKey = !subscriber ? "report" : isTierKey(order.plan) ? order.plan : (LEGACY_PLAN[order.plan ?? ""] ?? "visibility");
+  // Growth rebuilds the website, so its welcome carries the intake form.
+  const needsIntake = plan === "growth";
+
+  // A clinic that bought the full report and then started a plan with the report credit already has
+  // its report: it is not built, checked and charged for a second time.
+  let priorReportId: string | null = null;
+  if (order.credit_order_id) {
+    const [prior] = await sql<{ report_id: string | null; status: string }[]>`
+      select report_id, status from orders where id = ${order.credit_order_id} and clinic_id = ${order.clinic_id}`;
+    if (prior && ["paid", "partially_refunded"].includes(prior.status)) {
+      if (!prior.report_id) throw new Error("the report this plan follows is not built yet"); // its own job builds it; retry after
+      priorReportId = prior.report_id;
+      if (!order.report_id) {
+        await sql`update orders set report_id = ${priorReportId} where id = ${orderId} and report_id is null`;
+        order.report_id = priorReportId;
+      }
+    }
+  }
 
   let report: { id: string; token: string; data: StoredFull; pdf_path: string | null } | undefined;
   if (order.report_id) {
@@ -259,11 +287,8 @@ export async function buildAndDeliverFullReport(orderId: string, deps: FullRepor
   let built = false;
   if (!report) {
     const raw = await buildFullReportData(order.clinic_id);
-    const [teaser] = await sql<{ token: string }[]>`
-      select token from reports where clinic_id = ${order.clinic_id} and kind = 'teaser' and data->>'verified' = 'true'
-      order by superseded, created_at desc limit 1`;
-    raw.onMonthlyPlan = monthly;
-    raw.monthlyUrl = teaser ? `${env().APP_URL}/buy/${teaser.token}/monthly` : null;
+    // a subscriber's report has no "next step" block; a one-time buyer's is filled in when the report is shown
+    raw.onMonthlyPlan = subscriber;
 
     const gate = await verifyFullReport(raw, { live: !(await effectiveDryRun()), verifier: deps.verifier, verifierErrors: deps.verifierErrors });
     if (gate.usage && deps.cost) await deps.cost({ provider: "anthropic", operation: "verify_full_report", units: gate.usage as never, costUsd: gate.costUsd, clinicId: order.clinic_id });
@@ -272,7 +297,7 @@ export async function buildAndDeliverFullReport(orderId: string, deps: FullRepor
     let pdfRef: string | null = null;
     let pdfBytes: number | null = null;
     try {
-      const pdf = await (deps.pdf ?? htmlToPdf)(renderFullReport(gate.data, { web: false }));
+      const pdf = await (deps.pdf ?? htmlToPdf)(fillOffer(renderFullReport(gate.data, { web: false }), await offerContextFor({ clinicId: order.clinic_id })));
       pdfRef = await (deps.store ?? putFile)(`reports/${token}.pdf`, pdf, "application/pdf");
       pdfBytes = pdf.length;
     } catch (e) {
@@ -304,12 +329,12 @@ export async function buildAndDeliverFullReport(orderId: string, deps: FullRepor
 
   if (!order.customer_email) return { reportId: report.id, built, message: null, note: "no buyer email: nothing queued" };
   let intake: string | null = null;
-  if (monthly) {
+  if (needsIntake) {
     const [f] = await sql<{ token: string }[]>`select token from intake_forms where order_id = ${orderId}`;
     if (!f) throw new Error("intake form for this order is missing"); // created with the payment; retry
     intake = `${env().APP_URL}/intake/${f.token}`;
   }
-  const mail = deliveryEmail({ data: report.data, reportUrl: fullReportUrl(report.token), pdf: !!report.pdf_path, intakeUrl: intake, monthlyReports });
+  const mail = deliveryEmail({ data: report.data, reportUrl: fullReportUrl(report.token), pdf: !!report.pdf_path, intakeUrl: intake, plan, alreadyHas: priorReportId === report.id });
   const flags: Flag[] = [...(report.data.gate?.flags ?? [])];
   for (const f of scanLanguage(mail.subject + "\n" + mail.bodyText.split("\n--\n")[0], "email")) flags.push(f);
   const msg = await queueMessage({

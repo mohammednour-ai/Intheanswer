@@ -2,7 +2,7 @@ import { documentShell, esc } from "./html";
 import { markSvg, copilotAvatarSvg, COPILOT_NAME } from "../brand";
 import type { TeaserData, RowStatus } from "./types";
 import { LIVE_REVIEWS_MARKER } from "../reviews/liveTable";
-import { priceNote } from "../env";
+import { OFFER_MARKER } from "./offerSection";
 
 /** Teaser layout follows the owner's design canvas ("Teaser report (free)"). */
 
@@ -48,24 +48,23 @@ function statusMark(status: RowStatus, width: number): string {
   return `<svg width="${width}" height="${h}" viewBox="0 0 120 104" aria-hidden="true"><rect x="8" y="8" width="84" height="20" rx="10" fill="${grey}"/>${middle}<rect x="8" y="76" width="64" height="20" rx="10" fill="${grey}"/></svg>`;
 }
 
-const ARROW =
-  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>';
 const ARROW_OUT =
   '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"/><path d="M9 7h8v8"/></svg>';
 
-/** Twelve cells, the first `months` filled: how long a plan commits you. */
-function meter(term: string): string {
-  const months = Math.min(12, Number(term.match(/^(\d+)/)?.[1] ?? 0));
-  return `<span class="rp-meter" aria-hidden="true">${Array.from({ length: 12 }, (_, i) => `<span${i < months ? ' class="on"' : ""}></span>`).join("")}</span>`;
-}
-
-/** The site the report's links point back to (the buy links carry it), so the PDF's links work too. */
-function siteOrigin(d: TeaserData): string {
-  try {
-    return new URL(d.offers.oneTimeUrl).origin;
-  } catch {
-    return "https://intheanswer.ca";
+/**
+ * The site the report's links point back to, so the PDF's links work too.
+ * A teaser stored before the plans moved to src/lib/offer.ts has no `siteUrl`:
+ * its site is read from the checkout link it stored then.
+ */
+export function siteOrigin(d: Pick<TeaserData, "siteUrl" | "offers">): string {
+  for (const url of [d.siteUrl, d.offers?.oneTimeUrl]) {
+    try {
+      if (url) return new URL(url).origin;
+    } catch {
+      /* not a URL: try the next */
+    }
   }
+  return "https://intheanswer.ca";
 }
 
 export function renderTeaser(d: TeaserData): string {
@@ -98,12 +97,6 @@ export function renderTeaser(d: TeaserData): string {
       }</li>`;
     })
     .join("");
-
-  const three = Boolean(d.offers.reportsUrl);
-  const reportsTerm = d.offers.reportsMinTerm ?? "";
-  const contract = `${d.offers.minTerm.replace(/^(\d+) months?$/, "$1-month")} contract`;
-  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-  const row = (dt: string, dd: string, cls = "") => `<div><dt>${dt}</dt><dd${cls ? ` class="${cls}"` : ""}>${dd}</dd></div>`;
 
   const body = `<div class="rp">
 <header class="rp-top"><div class="rp-wrap"><div class="rp-topbar">
@@ -163,55 +156,7 @@ export function renderTeaser(d: TeaserData): string {
 
 <div class="rp-wrap rp-live">${LIVE_REVIEWS_MARKER}</div>
 
-<section class="rp-band rp-plansec" aria-labelledby="plans-h"><div class="rp-wrap rp-stack">
-  <div class="rp-planshead">
-    <h2 id="plans-h" class="rp-h2">${three ? "Three" : "Two"} ways to fix it</h2>
-    <p>The free report is yours to keep whether or not you buy anything.</p>
-  </div>
-  <ul class="rp-glance" aria-label="The ${three ? "three" : "two"} options in short">
-    <li><strong>One time</strong>200 CAD · your web person installs · no contract</li>
-    ${three ? `<li><strong>Monthly reports</strong>150 CAD, then 50 CAD per month · your web person installs · minimum term ${esc(reportsTerm)}</li>` : ""}
-    <li><strong>Full service plan</strong>200 CAD per month · we do the work for you · <span class="rp-nowrap">${esc(contract)}</span></li>
-  </ul>
-  <div class="rp-plans">
-    <article class="rp-plan">
-      <div class="rp-planhead"><h3 class="rp-planname">One time</h3><p class="rp-price">200 CAD</p><p class="rp-plansub">Full report and fix files</p></div>
-      <dl class="rp-dl">
-        ${row("Who installs the fixes", '<span class="rp-big">Your web person</span>', "rp-installs")}
-        ${row("How long you commit", `<span class="rp-big">No contract</span>${meter("0")}`, "rp-term")}
-        ${row("Retests", "One retest four weeks later", "rp-retest")}
-      </dl>
-      <p>All ${d.findingsTotal} findings and the fixes, ready for your web person to paste in. Includes one retest four weeks later.</p>
-      <a class="rp-btn" href="${esc(d.offers.oneTimeUrl)}">Get the full report${ARROW}</a>
-    </article>
-    ${three ? `<article class="rp-plan">
-      <div class="rp-planhead"><h3 class="rp-planname">Monthly reports</h3><p class="rp-price">150 CAD <small>first month</small></p><p class="rp-plansub">then 50 CAD per month · minimum ${esc(reportsTerm)}</p></div>
-      <dl class="rp-dl">
-        ${row("Who installs the fixes", '<span class="rp-big">Your web person</span>', "rp-installs")}
-        ${row("How long you commit", `<span class="rp-big">Minimum term ${esc(reportsTerm)}</span>${meter(reportsTerm)}`, "rp-term")}
-        ${row("Retests", "Retested every month, with an updated report", "rp-retest")}
-      </dl>
-      <p>The full report and fix files now, then a fresh retest and an updated report every month. Your web person installs the fixes.</p>
-      <a class="rp-btn" href="${esc(d.offers.reportsUrl ?? "")}">Start monthly reports${ARROW}</a>
-    </article>` : ""}
-    <article class="rp-plan main">
-      <div class="rp-planhead"><h3 class="rp-planname">Full service plan</h3><p class="rp-price">200 CAD</p><p class="rp-plansub">per month · ${esc(contract)}</p></div>
-      <dl class="rp-dl">
-        ${row("Who installs the fixes", '<span class="rp-wedo">We do the work for you</span>', "rp-installs")}
-        ${row("How long you commit", `<span class="rp-big">${esc(cap(contract))}</span>${meter(d.offers.minTerm)}`, "rp-term")}
-        ${row("Retests", "Retested every month, with a before and after", "rp-retest")}
-      </dl>
-      <ul>
-        <li>Your website renovated, or taken over and run by us, with every fix installed</li>
-        <li>The same questions retested every month, with a before and after</li>
-        <li>A watch on the clinics named beside you, and what they changed</li>
-        <li>Hours, notices and listings kept current all year</li>
-      </ul>
-      <a class="rp-btn" href="${esc(d.offers.monthlyUrl)}">Start the full service plan${ARROW}</a>
-    </article>
-  </div>
-  <p class="rp-note">${priceNote()} No one can guarantee what an AI assistant will say; we report what it said and fix what we can see. <a href="${esc(site)}/pricing">Contracts, cancelling and refunds are on the pricing page.</a></p>
-</div></section>
+${OFFER_MARKER}
 </main>
 
 <footer class="rp-foot"><div class="rp-wrap"><div class="rp-footin">

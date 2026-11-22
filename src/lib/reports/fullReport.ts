@@ -4,6 +4,7 @@ import { reportHeader, copilotByline } from "./renderTeaser";
 import { CHECK_LABELS, type Evidence } from "../pipeline/audit/types";
 import { SITE_CHECK_LABELS, A11Y_LABEL } from "../sitetest/types";
 import { LIVE_REVIEWS_MARKER } from "../reviews/liveTable";
+import { OFFER_UPGRADE_MARKER } from "./offerSection";
 import { levelLabel } from "../reviews/thresholds";
 import { reviewKitHtml } from "../reviews/kit";
 import { fetchLiveRatings } from "../reviews/placesLive";
@@ -65,9 +66,13 @@ export interface FullReportData {
   structuredData: Record<string, unknown> | null;
   kitHtml: string | null;
   regulatorNote: string;
-  /** Checkout link for the full service plan (from the clinic's teaser token). Falls back to the pricing page. */
+  /**
+   * Not read any more. The closing "next step" is a marker in the stored report, filled from
+   * src/lib/offer.ts when the report is shown or printed (offerSection.ts), with the clinic's
+   * own checkout link. Kept so reports stored with it still load.
+   */
   monthlyUrl?: string | null;
-  /** The buyer is already on the full service plan: the closing offer is left out. */
+  /** The buyer came in on a monthly plan: the report closes without a next step. */
   onMonthlyPlan?: boolean;
 }
 
@@ -204,11 +209,7 @@ ${draft}
   <div class="finding"><div class="t">Structured data for your site</div><pre class="file">${esc(JSON.stringify(d.structuredData, null, 2))}</pre></div>
   ${d.kitHtml ? `<div class="finding">${d.kitHtml}</div>` : ""}
 </section>
-${d.onMonthlyPlan ? "" : `<section class="offer main" style="gap:12px">
-  <div class="row"><div><div class="label">Next step · Full service plan</div><div class="price" style="font-size:22px">These files fix today. On the full service plan we do the work for you.</div></div><div class="price">200 CAD <span>per month</span></div></div>
-  <ul><li>We install everything: your website rebuilt or upgraded with every fix in place.</li><li>Two new answer pages each month, written for the questions patients ask.</li><li>Monthly retest of the same questions, with a before and after.</li><li>Competitor watch: which clinics were named beside you.</li></ul>
-  <a class="btn" href="${esc(d.monthlyUrl ?? "https://intheanswer.ca/pricing")}">Start the full service plan</a>
-</section>`}
+${d.onMonthlyPlan ? "" : OFFER_UPGRADE_MARKER}
 <footer class="foot">
   ${copilotByline(o.name)}
   <div>This report reflects one assistant, the questions listed, on the test date. Assistants change what they recommend, and results can differ between assistants. These fixes make your clinic easier to understand and quote. No one can guarantee that a clinic will be named.</div>

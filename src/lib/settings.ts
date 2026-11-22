@@ -38,6 +38,9 @@ export interface AppSettings {
   call_requests_per_report_per_day: number;
   /** The voice chosen for the phone agent (a <Say> voice id from calls/voices.ts); null is the default. */
   call_voice: string | null;
+  /** Promise and pillar keys from src/lib/offer.ts that are switched on. Read them through offerSwitches(). */
+  offer_promises?: string[] | null;
+  offer_pillars?: string[] | null;
 }
 
 export async function getSettings(): Promise<AppSettings> {

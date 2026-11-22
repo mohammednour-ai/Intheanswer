@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { db } from "../db";
-import { env } from "../env";
+import { chargesHst, env } from "../env";
 import type { JobContext } from "../jobs/queue";
 import { register } from "../jobs/handlers";
 import { addressOf, mail, type InboundMail } from "../adapters/mail";
@@ -8,17 +8,26 @@ import { structured } from "../adapters/claude";
 import { unsubscribe } from "../unsubscribe";
 import { addSuppression, domainOf } from "../sending/suppression";
 import { queueMessage, queueOwnerMail, signature } from "../sending/outbox";
+import { emailOfferLines, priceAnswer } from "../offer";
+import { offerContextFor } from "../reports/offerContext";
+import { answersFor } from "../answers";
 
 /**
  * Replies. A reply is stored, matched to its clinic, and stops the cold
  * sequence at once. It is then classified:
  *   unsubscribe / not interested -> suppressed, nothing more is sent
  *   a question with an approved answer -> that answer is drafted for review
- *   interested -> a short reply with the two offers is drafted for review
+ *   interested -> a short reply with the plans and their links is drafted for review
  *   anything else -> escalated to the owner, no draft
  * Drafts use only approved answers; nothing is improvised. Every reply is also
  * forwarded to the owner.
+ *
+ * Plans and prices are never typed here or taken from a stored answer: they
+ * are written from src/lib/offer.ts when the reply is drafted.
  */
+
+/** The approved answer whose text is the price list: it is generated, so it can never repeat an old price. */
+const PRICE_ANSWER_KEY = "price";
 
 const AUTO_SUBJECT = /^(auto(matic)?[ -]?reply|out of (the )?office|autoreply|away from|vacation|absence|réponse automatique)/i;
 const UNSUB_TEXT = /\b(unsubscribe|remove (me|us|this (email|address))|stop (emailing|contacting|sending)|do not (contact|email)|take (me|us) off|opt.?out)\b/i;
@@ -123,7 +132,7 @@ const ClassSchema = z.object({
 });
 
 const CLASSIFY_SYSTEM = `You sort one reply to a business email into exactly one class. Be literal.
-- interested: wants to buy, wants the full report or the full service plan, or asks how to proceed.
+- interested: wants to buy, wants the full report or a monthly plan, or asks how to proceed.
 - question: asks something before deciding. Pick answer_key only when one approved answer fully answers it; otherwise null.
 - not_interested: declines, without asking to be removed.
 - unsubscribe: asks not to be contacted again, in any wording.
@@ -152,7 +161,8 @@ export async function classifyInbound(inboundId: string, classify: Classifier = 
     select id, from_email, subject, body_text, clinic_id, related_message_id, classification::text from inbound_messages where id=${inboundId}`;
   if (!i) throw new Error("inbound message not found");
   if (i.classification) return { classification: i.classification, drafted: false, escalated: false };
-  const answers = await sql<{ key: string; question: string; answer: string }[]>`select key, question, answer from approved_answers where active order by id`;
+  // the answers approved for email (an answer worded for a phone call is never drafted into one), with their placeholders filled in
+  const answers = await answersFor("email");
 
   let c: Classification;
   if (!env().ANTHROPIC_API_KEY && classify === modelClassifier) {
@@ -173,17 +183,20 @@ export async function classifyInbound(inboundId: string, classify: Classifier = 
     await addSuppression("address", i.from_email, "replied not interested", "reply");
     if (i.clinic_id) await sql`update clinics set status='closed', status_reason='replied: not interested', updated_at=now() where id=${i.clinic_id} and status <> 'customer'`;
   } else if (answer) {
-    draft = [`Hello,`, ``, answer.answer, ``, signature()].join("\n");
+    // the price answer is always the generated one, whatever text is stored under its key
+    const text = answer.key === PRICE_ANSWER_KEY ? priceAnswer(chargesHst()) : answer.answer;
+    draft = [`Hello,`, ``, text, ``, signature()].join("\n");
     type = "question_answer";
   } else if (c.classification === "interested" && i.clinic_id) {
-    const [rep] = await sql<{ token: string }[]>`select token from reports where clinic_id=${i.clinic_id} and kind='teaser' order by created_at desc limit 1`;
-    if (rep) {
-      const base = `${env().APP_URL}/buy/${rep.token}`;
+    // The plans this clinic does not have yet, each with its checkout link. Without a teaser that
+    // passed the gate there is no link to give, and with nothing left to offer there is nothing to
+    // list: both go to the owner.
+    const offer = await offerContextFor({ clinicId: i.clinic_id });
+    const plans = offer.buyBase ? emailOfferLines({ buyBase: offer.buyBase, has: offer.has, switches: offer.switches }) : [];
+    if (plans.length) {
       draft = [
         `Hello,`, ``, `Thank you for writing back. You can start with any of these:`, ``,
-        `- Full report and fix files, 200 CAD, one time: ${base}/report`,
-        `- Monthly reports, 150 CAD for the first month, then 50 CAD a month: ${base}/reports`,
-        `- Full service plan, 200 CAD a month: ${base}/monthly`, ``,
+        ...plans, ``,
         `If you would rather talk first, reply with a time that suits you and we will call.`, ``, signature(),
       ].join("\n");
       type = "interested_reply";

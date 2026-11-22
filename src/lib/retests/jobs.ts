@@ -142,9 +142,9 @@ export async function deliverRetestUpgrade(p: { clinicId: string; scoreId: strin
   const r = await buildAndDeliverComparison({
     kind: "retest", clinicId: p.clinicId, scoreId: p.scoreId, cycle: p.orderId, orderId: p.orderId,
     previousReport: previousReport ?? null, baselineBefore: order.paid_at,
-    monthlyUrl: teaser ? `${env().APP_URL}/buy/${teaser.token}/monthly` : null,
+    monthlyUrl: teaser ? `${env().APP_URL}/buy/${teaser.token}/visibility` : null,
     toEmail, messageKey: `retest_upgrade:${p.orderId}`,
-    forceReview: teaser ? undefined : "no teaser report to build the full service plan link from; the pricing page is linked instead",
+    forceReview: teaser ? undefined : "no teaser report to build the plan link from; the pricing page is linked instead",
   }, deps);
   await sql`update orders set retest_done_at = now(), retest_note = ${"message " + r.message.status} where id = ${p.orderId} and retest_done_at is null`;
   return { reportId: r.reportId, built: r.built, message: r.message.id, status: r.message.status, flags: r.flags.map((f) => f.code) };

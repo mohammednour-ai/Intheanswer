@@ -1,11 +1,14 @@
 import type { Claim, TeaserData } from "../reports/types";
 import { unsubscribeUrl } from "../tokens";
 import { signature } from "../sending/outbox";
+import { emailOfferLines, type Switches } from "../offer";
 
 /**
  * The first email: plain, short and personal. Subject states the clinic's
  * result. Body: what was asked, what came back, two findings, the link, the
- * two offers one line each, sender identity and a one-click unsubscribe.
+ * plans bought online one line each (as src/lib/offer.ts states them, without
+ * links: the report carries the buttons), sender identity and a one-click
+ * unsubscribe.
  */
 
 export interface Draft {
@@ -46,7 +49,8 @@ export function namedInsteadLine(d: TeaserData, n = 3): string {
   return tiedAtCut ? ` The clinics it named included ${names}.` : ` The clinics it named most often were ${names}.`;
 }
 
-export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUrl: string; reportUrl: string }): Draft {
+/** `switches`: what the owner has switched on (offerSwitches()); the launch setting when left out. */
+export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUrl: string; reportUrl: string; switches?: Switches }): Draft {
   const claims: Claim[] = [];
   const example = d.rows.find((r) => r.status !== "recommended") ?? d.rows[0];
   const { recommended: r, total: t } = d.score;
@@ -79,9 +83,7 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
     `(A PDF copy is attached.)`,
     ``,
     `If you want it fixed:`,
-    `- Full report and fix files: 200 CAD, one time.`,
-    `- Monthly reports: 150 CAD for the first month, then 50 CAD a month. The same report, updated after a fresh retest each month.`,
-    `- Full service plan: 200 CAD a month. We renovate your site or take it over, install every fix and retest each month.`,
+    ...emailOfferLines({ switches: opts.switches }),
     ``,
     `Whichever you choose, the free report is yours to keep.`,
     ``,

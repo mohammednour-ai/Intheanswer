@@ -28,7 +28,8 @@ export interface SpokenCheck {
 export const FALLBACK_LINE =
   "I would rather not get that wrong, so I will leave that one to the report itself and to our team. What else can I walk you through?";
 
-const MAX_CHARS = 700;
+/** About 25 seconds of speech: a turn is one idea, not a paragraph. */
+const MAX_CHARS = 450;
 
 const REVIEW_NUMBER = /\b\d+(\.\d)?\s*(stars?|reviews?|ratings?)\b|\brated \d/i;
 const HUMAN_CLAIM = /\b(i am|i'm|this is|you are speaking (to|with)|you're speaking (to|with)) (a |an )?(real |live |actual )?(person|human|human being)\b|\b(i am|i'm) not (a |an )?(ai|a\.i\.|robot|bot|machine|computer|recording)\b/i;
@@ -79,8 +80,11 @@ export function checkSpoken(raw: string, brief: Pick<CallBrief, "allowedAmounts"
   const exclude = { names: brief.names, quoted: brief.quoted };
   // "I cannot promise your clinic will be recommended" is the opposite of a promise, and it is the
   // sentence a caller most needs to hear: a promise wording is only a breach outside such a clause.
-  const promises = new Set(scanLanguage(withoutDisclaimers(text), "call", exclude).map((f) => f.code));
-  for (const f of scanLanguage(text, "call", exclude)) {
+  // The scan reads a copy in which "top" as a place or an addition ("on top of that", "at the top of the
+  // page") is put in other words: on a call those are everyday speech, not a claim to be the top anything.
+  const scanned = text.replace(/\bon top of\b/gi, "besides").replace(/\b(at|to|near|from) the top\b/gi, "$1 the start");
+  const promises = new Set(scanLanguage(withoutDisclaimers(scanned), "call", exclude).map((f) => f.code));
+  for (const f of scanLanguage(scanned, "call", exclude)) {
     if (PROMISE_CODES.has(f.code) && !promises.has(f.code)) continue;
     flags.push({ code: f.code, message: f.message });
   }

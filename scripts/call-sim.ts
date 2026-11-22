@@ -6,25 +6,28 @@
  *   npm run call:sim -- --general       someone phones our number: no report until they name their clinic
  *                                       (looked up in the database) and confirm it
  *
- * The same brief, the same model call and the same spoken-word check as on a
- * real call; only the telephone is missing. Type what the caller says and
- * press Enter; an empty line is a silence; Ctrl+C ends. Nothing is stored,
- * dialled or sent: an action such as "email the links" is only printed.
- * Each reply is one model call on your ANTHROPIC_API_KEY.
+ * The same brief, the same model call, the same spoken-word check and the same
+ * playbook rules as on a real call; only the telephone is missing. Type what
+ * the caller says and press Enter; an empty line is a silence; Ctrl+C ends.
+ * Nothing is stored, dialled or sent: an email the agent would send is only
+ * printed. Each reply is one model call on your ANTHROPIC_API_KEY.
  */
 import readline from "node:readline";
 import { closeDb, db } from "../src/lib/db";
 import { ownerDetails } from "../src/lib/env";
 import { sampleTeaser } from "../src/lib/reports/sample";
-import { COPILOT_NAME } from "../src/lib/brand";
-import { allowedAmounts, briefForClinic, generalBrief, offerLines, type CallBrief } from "../src/lib/calls/brief";
+import { DEFAULT_SWITCHES, TIERS, isOnlineTier, offeredTo, type OnlineTier, type PillarKey } from "../src/lib/offer";
+import { allowedAmounts, briefForClinic, generalBrief, offerLines, playbookFor, type CallBrief } from "../src/lib/calls/brief";
 import { claudeBrain, voiceModel, type TranscriptLine } from "../src/lib/calls/agent";
-import { checkSpoken, hearsOptOut } from "../src/lib/calls/guard";
-import { LINES, MAX_NAME_MISSES, inboundGreeting } from "../src/lib/calls/engine";
+import { FALLBACK_LINE, checkSpoken, hearsOptOut } from "../src/lib/calls/guard";
+import { ASKS_TO_SEND, LINES, MAX_NAME_MISSES, inboundGreeting, outboundGreeting } from "../src/lib/calls/engine";
+import { BUYING_LINES, PAINS, checkPlaybook, fixedSentences, linkSent, readBack, type Pain } from "../src/lib/calls/playbook";
 import { findClinics } from "../src/lib/calls/lookup";
+import { answersFor } from "../src/lib/answers";
 
-/** The sample report as a brief, built without the database. */
-function sampleBrief(): CallBrief {
+/** The sample report as a brief. It needs no database; when one is reachable, the approved answers are read from it. */
+async function sampleBrief(): Promise<CallBrief> {
+  const answers = await answersFor("phone").then((rows) => rows.filter((a) => a.key !== "price").map(({ question, answer }) => ({ question, answer }))).catch(() => []);
   const d = sampleTeaser();
   const o = ownerDetails();
   const status: Record<string, string> = { recommended: "Recommended", listed_only: "Listed only", not_named: "Not named" };
@@ -40,13 +43,14 @@ function sampleBrief(): CallBrief {
       `Limits of the test: ${d.limits}`,
     ],
     offers: offerLines(null),
-    company: [`In The Answer is a small Ontario service run by ${o.name}. It tests whether AI assistants name a local clinic when patients ask for a recommendation.`],
-    answers: [],
+    company: [`In The Answer is an Ontario company. It tests whether AI assistants name a local clinic when patients ask for a recommendation, and rebuilds and runs what that depends on.`],
+    answers,
     contact: { ownerName: o.name, title: o.title, businessName: o.businessName, phone: o.phone, email: o.email },
     allowedAmounts: allowedAmounts(),
     names: [d.clinic.name, ...d.rows.flatMap((r) => r.namedInstead)],
-    quoted: d.rows.map((r) => r.question),
+    quoted: [...d.rows.map((r) => r.question), ...fixedSentences(DEFAULT_SWITCHES)],
     canEmailLinks: true,
+    playbook: playbookFor(DEFAULT_SWITCHES),
   };
 }
 
@@ -68,17 +72,23 @@ async function main() {
   // a caller with no code names their clinic: what was found for the name, and how often nothing was
   let found: { id: string; name: string; city: string | null }[] = [];
   let misses = 0;
+  // where the call stands against the playbook (the engine keeps the same on the call row)
+  const st = { pains: [] as Pain[], buying: false, declined: false, reassured: false, pillars: [] as PillarKey[], pendingCheckout: null as OnlineTier | null, unclear: 0 };
   const opening = inbound
     ? inboundGreeting(null)
-    : `Hi, this is the ${COPILOT_NAME}. I'm an AI assistant. Someone at your clinic asked on our website for this call about your AI visibility report. This call is transcribed so our team can review it. Is now a good time to go through the report for ${brief.clinic?.name}?`;
+    : outboundGreeting({ contactName: null, clinic: brief.clinic?.name ?? null, source: "web_form" });
   console.log(`\nModel: ${voiceModel()}   Brief: ${brief.kind}${brief.clinic ? `, ${brief.clinic.name}` : ""}\n`);
   console.log(`Assistant: ${opening}\n`);
-  transcript.push({ role: "agent", text: opening });
+  transcript.push({ role: "agent", text: opening, fixed: true });
 
   // Lines are read one at a time, so a typed conversation and a piped script both work.
   const rl = readline.createInterface({ input: process.stdin });
   const input = rl[Symbol.asyncIterator]();
   const started = Date.now();
+  const ours = (line: string, note: string, ms: number) => {
+    console.log(`\nAssistant: ${line}\n[${note} · ${ms} ms]\n`);
+    transcript.push({ role: "agent", text: line, fixed: true });
+  };
   for (;;) {
     process.stdout.write("Caller: ");
     const next = await input.next();
@@ -96,42 +106,85 @@ async function main() {
     try {
       ({ turn } = await claudeBrain({
         brief, direction: inbound ? "inbound" : "outbound",
-        reason: inbound ? "The caller phoned In The Answer's number." : "Someone at the clinic asked for this call on the page their report links to.",
+        reason: inbound ? "The caller phoned In The Answer's number." : "Someone at the clinic asked for this call on the page their report links to, typed in this number, and agreed there to be called by an AI assistant.",
         transcript, heard: heard || null, minutesElapsed: (Date.now() - started) / 60e3, minutesLimit: 10,
         found: brief.clinic ? undefined : found.map((f) => ({ name: f.name, city: f.city })),
+        progress: { pains: st.pains, reassured: st.reassured, declined: st.declined, pendingCheckout: st.pendingCheckout, unclear: st.unclear >= 1 },
       }));
     } catch (e) {
-      console.log(`\n[model call failed: ${(e as Error).message}; on a real call the caller hears "Sorry, I missed that. Could you say it again?"]\n`);
+      console.log(`\n[model call failed: ${(e as Error).message}; on a real call the caller hears "${LINES.repeat}"]\n`);
       continue;
     }
     const ms = Date.now() - t0;
+
+    // what the caller showed, as the model reports it
+    st.pains = PAINS.filter((p) => st.pains.includes(p) || turn.pains.includes(p));
+    if (turn.buying_signal) { st.buying = true; st.declined = false; }
+    if (turn.declined) { st.declined = true; st.buying = false; st.pendingCheckout = null; }
+    const marks = [
+      `stage ${turn.stage}`, st.pains.length ? `pains ${st.pains.join(",")}` : "", turn.buying_signal ? "buying signal" : "", turn.declined ? "declined" : "",
+      turn.not_decision_maker ? "not the decision maker" : "", turn.follow_up_ok ? "follow-up agreed" : "",
+      turn.handoff_note ? `hand over to the owner: ${turn.handoff_note}` : "",
+    ].filter(Boolean).join(" · ");
+
     // The engine's own steps for a caller with no code: look the name up, ask, and attach the report on a yes.
     if (inbound && !brief.clinic && turn.action === "continue") {
       const chosen = turn.clinic_choice ? found[Number(turn.clinic_choice) - 1] : undefined;
       const picked = chosen ? await briefForClinic(chosen.id) : null;
-      let ours: string | null = null;
+      let line: string | null = null;
       if (picked?.clinic) {
         brief = picked;
         found = [];
-        ours = LINES.reportReady(picked.clinic.name);
+        line = LINES.reportReady(picked.clinic.name);
       } else if (turn.clinic_search?.trim()) {
         found = (await findClinics(turn.clinic_search)).map((m) => ({ id: m.id, name: m.name, city: m.city }));
         if (!found.length) misses++;
         console.log(`\n[looked up "${turn.clinic_search}": ${found.length ? found.map((f) => `${f.name}${f.city ? `, ${f.city}` : ""}`).join("; ") : "nothing close"}]`);
-        ours = found.length === 1 ? LINES.clinicOne(found[0]) : found.length > 1 ? LINES.clinicSeveral(found)
+        line = found.length === 1 ? LINES.clinicOne(found[0]) : found.length > 1 ? LINES.clinicSeveral(found)
           : misses >= MAX_NAME_MISSES ? LINES.clinicGiveUp(brief.contact.ownerName) : LINES.clinicMissing;
       }
-      if (ours) {
-        console.log(`\nAssistant: ${ours}\n[the system's own line · ${ms} ms]\n`);
-        transcript.push({ role: "agent", text: ours });
+      if (line) { ours(line, "the system's own line", ms); continue; }
+    }
+
+    // The buying step: read the plan back in the published words; the link goes out only on a clear yes.
+    const plan = isOnlineTier(turn.plan) ? turn.plan : null;
+    const wantsCheckout = turn.send === "checkout" && plan != null;
+    if (!wantsCheckout) st.pendingCheckout = null;
+    if (turn.send && !brief.canEmailLinks) { ours(BUYING_LINES.noAddress(brief.contact.ownerName), `${marks} · no address on file: handed to the owner`, ms); continue; }
+    if (wantsCheckout) {
+      if (!offeredTo(brief.plan).includes(plan) || (brief.plan && brief.plan !== "report")) { ours(BUYING_LINES.changeByEmail(brief.contact.ownerName), `${marks} · already a customer`, ms); continue; }
+      if (turn.confirmed && st.pendingCheckout === plan) {
+        st.pendingCheckout = null;
+        ours(linkSent(plan), `${marks} · the checkout link for ${TIERS[plan].name} would be emailed now, without review`, ms);
         continue;
       }
+      st.pendingCheckout = plan;
+      st.buying = true;
+      ours(readBack(plan), `${marks} · read-back, waiting for a yes`, ms);
+      continue;
     }
-    const checked = checkSpoken(turn.say, brief);
-    if (!checked.ok) console.log(`\n[stopped before it was spoken: ${checked.flags.map((f) => f.message).join("; ")}]\n[the model wrote: ${turn.say}]`);
-    const follow = [turn.email_links ? "email the links" : "", turn.handoff_note ? `hand over to the owner: ${turn.handoff_note}` : ""].filter(Boolean).join("; ");
-    console.log(`\nAssistant: ${checked.text}\n[${turn.action}${follow ? ` · ${follow}` : ""} · ${ms} ms]\n`);
-    transcript.push({ role: "agent", text: checked.text });
+    const sends = turn.send && ASKS_TO_SEND.test(turn.say) ? "only offering to email: nothing is sent until they say yes"
+      : turn.send === "report" ? "the report and the plans would be emailed now, without review" : turn.send === "summary" ? "a summary would be written after the call and wait for the owner's approval" : "";
+
+    let checked = checkSpoken(turn.say, brief);
+    let note = "";
+    if (checked.ok && brief.playbook) {
+      const play = checkPlaybook(checked.text, { pains: st.pains, buyingSignal: st.buying, declined: st.declined, pillarsNamed: st.pillars, reassured: st.reassured }, brief.playbook.switches);
+      if (!play.flags.length) {
+        st.pillars = [...new Set([...st.pillars, ...play.pillars])];
+        if (brief.playbook.reassurance && checked.text.includes(brief.playbook.reassurance)) st.reassured = true;
+      } else {
+        note = `stopped by the playbook: ${play.flags.map((f) => f.message).join("; ")}`;
+        const wording = play.flags.some((f) => f.code === "promise_wording" || f.code === "reassurance_twice");
+        checked = { ok: true, flags: [], text: wording ? FALLBACK_LINE : play.flags.some((f) => f.code === "offer_after_no") ? BUYING_LINES.afterNo : "Let me stay with what's in your report. What would you like to hear more about?" };
+      }
+    } else if (!checked.ok) {
+      note = `stopped before it was spoken: ${checked.flags.map((f) => f.message).join("; ")}`;
+    }
+    if (note) console.log(`\n[${note}]\n[the model wrote: ${turn.say}]`);
+    st.unclear = /\b(say (it|that) again|repeat that|didn'?t (quite )?catch|missed that)\b/i.test(checked.text) ? st.unclear + 1 : 0;
+    console.log(`\nAssistant: ${checked.text}\n[${turn.action} · ${marks}${sends ? ` · ${sends}` : ""} · ${ms} ms]\n`);
+    transcript.push({ role: "agent", text: checked.text, fixed: !!note });
     if (["end_call", "do_not_call", "do_not_contact", "wrong_number", "voicemail"].includes(turn.action)) break;
   }
   rl.close();

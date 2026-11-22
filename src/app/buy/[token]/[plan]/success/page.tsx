@@ -29,9 +29,9 @@ export default async function BuySuccess(props: PageProps<"/buy/[token]/[plan]/s
         {paid ? "Payment received." : "Your payment is being confirmed. This can take a minute."}
       </p>
       <p>A receipt is sent to the email address you gave at payment.</p>
-      {plan === "reports" ? (
-        <p>A second email follows with the first full report for {target.clinicName}. It is checked before it is sent, and a new report follows each month.</p>
-      ) : plan === "monthly" ? (
+      {plan === "visibility" ? (
+        <p>A second email follows with the full report for {target.clinicName}. It is checked before it is sent. We will also write to arrange access to your website, so we can publish the answer pages.</p>
+      ) : plan === "growth" ? (
         <p>A second email follows with the full report for {target.clinicName} and a short form about your website. The report is checked before it is sent.</p>
       ) : (
         <p>The full report for {target.clinicName} follows by email. It is checked before it is sent.</p>

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { COPILOT_NAME, copilotAvatarSvg } from "@/lib/brand";
+import { VOICE_NAME, copilotAvatarSvg } from "@/lib/brand";
 import { ownerDetails } from "@/lib/env";
 import { consentWording, loadCallPage, requestCall } from "@/lib/calls/request";
 import { Shell } from "../../buy/Shell";
@@ -49,9 +49,9 @@ export default async function CallPage(props: PageProps<"/call/[token]">) {
 
       <div className={`${s.panel} ${s.panelSoft}`}>
         <div className={s.assistant}>
-          <span dangerouslySetInnerHTML={{ __html: copilotAvatarSvg({ size: 40, label: `${COPILOT_NAME} (AI)` }) }} />
+          <span dangerouslySetInnerHTML={{ __html: copilotAvatarSvg({ size: 40, label: `${VOICE_NAME} (AI)` }) }} />
           <div className={s.assistantText}>
-            <strong>{COPILOT_NAME} is an AI assistant, not a person.</strong>
+            <strong>{VOICE_NAME} is our AI assistant, not a person.</strong>
             <span>
               It can phone you, walk you through what the report found, and answer questions about the paid options. It only
               states what is in your report. For anything else, a person at In The Answer follows up with you.
