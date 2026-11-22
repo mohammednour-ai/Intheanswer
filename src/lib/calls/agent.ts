@@ -61,6 +61,8 @@ export interface BrainInput {
   minutesLimit: number;
   /** Clinics the system found for the name the caller gave, in the order they were read out; the caller has been asked which is theirs. */
   found?: { name: string; city: string | null }[];
+  /** The caller spoke over your last line; this is the part of it they had heard (real-time voice). */
+  cutIn?: string | null;
   /** Where the call stands against the playbook. */
   progress?: {
     pains: Pain[];
@@ -188,6 +190,9 @@ export function turnPrompt(i: BrainInput): string {
   const left = i.minutesLimit - i.minutesElapsed;
   return [
     `<transcript>\n${lines.join("\n") || "(the call has just connected)"}\n</transcript>`,
+    i.cutIn != null
+      ? `The caller cut in while you were speaking. Of your last line they had only heard: "${i.cutIn}". Do not assume they heard the rest.`
+      : "",
     i.heard ? `The caller just said: "${i.heard}"` : "The caller said nothing for several seconds.",
     i.found?.length
       ? `The system looked up the clinic name the caller gave and read these out, asking which is theirs:\n${i.found.map((f, n) => `${n + 1}. ${f.name}${f.city ? ` (${f.city})` : ""}`).join("\n")}\nIf the caller has now confirmed one, set clinic_choice to its number.`

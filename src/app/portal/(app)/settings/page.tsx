@@ -288,6 +288,25 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
             The voice changes on the next call. Whichever you choose, the assistant says at the start of every call that it is an AI
             assistant. To hear one, save it and phone our number.
           </p>
+          <div className="row">
+            <div>
+              <label htmlFor="crelay">Real-time voice</label>
+              <select id="crelay" name="call_relay" defaultValue={s.call_relay ?? "off"}>
+                <option value="off">Off: every call uses the standard line</option>
+                <option value="listed">Only calls to or from the numbers listed</option>
+                <option value="all">Every call</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="crelaynums">Numbers to try it on</label>
+              <textarea id="crelaynums" name="call_relay_numbers" rows={2} defaultValue={(s.call_relay_numbers ?? []).map(displayPhone).join("\n")} />
+            </div>
+          </div>
+          <p className="small muted">
+            With real-time voice the assistant answers sooner and stops when the caller talks over it. It says and checks exactly
+            the same things as on the standard line. If its connection fails during a call, the call carries on over the standard
+            line. Try it on your own number first, then compare the two by phoning our number.
+          </p>
           <button className="btn">Save call settings</button>
         </form>
       </section>

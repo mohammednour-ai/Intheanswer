@@ -8,6 +8,7 @@ import { cancelCall, scheduleOwnerCall } from "@/lib/calls/request";
 import { suppressPhone } from "@/lib/calls/rules";
 import { normalizeCanadianPhone } from "@/lib/calls/phone";
 import { isCallVoice } from "@/lib/calls/voices";
+import { relayNumbersFrom } from "@/lib/calls/relayConfig";
 
 function num(v: FormDataEntryValue | null, min: number, max: number, fallback: number): number {
   const n = Number(v);
@@ -24,10 +25,14 @@ export async function saveCallSettingsAction(form: FormData) {
   await requireOwner();
   // only a voice from the list is stored; anything else leaves the default in place
   const voice = String(form.get("call_voice") ?? "");
+  const relay = String(form.get("call_relay") ?? "off");
   await db()`update app_settings set calls_daily_cap=${num(form.get("calls_daily_cap"), 0, 200, 20)},
              call_max_minutes=${num(form.get("call_max_minutes"), 3, 30, 10)},
              call_requests_per_report_per_day=${num(form.get("call_requests_per_report_per_day"), 1, 10, 2)},
-             call_voice=${isCallVoice(voice) ? voice : null}, updated_at=now() where id`;
+             call_voice=${isCallVoice(voice) ? voice : null},
+             call_relay=${relay === "listed" || relay === "all" ? relay : "off"},
+             call_relay_numbers=${relayNumbersFrom(String(form.get("call_relay_numbers") ?? ""))},
+             updated_at=now() where id`;
   revalidatePath("/portal/settings");
 }
 

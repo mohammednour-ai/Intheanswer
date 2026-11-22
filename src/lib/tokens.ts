@@ -43,6 +43,11 @@ export function unsubscribeUrl(email: string): string {
   return `${env().APP_URL}/unsubscribe/${unsubscribeToken(email)}`;
 }
 
+/** The key in the address of a call's live connection (real-time voice): only the provider is given it. */
+export function relayKey(callToken: string): string {
+  return hmac("relay:" + callToken);
+}
+
 export function constantTimeEqual(a: string, b: string): boolean {
   const x = Buffer.from(a);
   const y = Buffer.from(b);

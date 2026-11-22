@@ -20,7 +20,8 @@ import { claudeBrain, claudeReviewer, numberAnswer, type Action, type Brain, typ
 import { FALLBACK_LINE, checkSpoken, hearsOptOut, type SpokenFlag } from "./guard";
 import { displayPhone, lastTen, normalizeCanadianPhone, spokenCode } from "./phone";
 import { MAX_ATTEMPTS, callsReady, checkCall, stopAllContact, suppressPhone } from "./rules";
-import { hangUp, sayAndHangUp, sayAndListen } from "./twiml";
+import { conversationRelay, hangUp, sayAndHangUp, sayAndListen } from "./twiml";
+import { relayActionUrl, relaySocketUrl, relayWanted } from "./relayConfig";
 import { findClinics } from "./lookup";
 import { resolveVoice } from "./voices";
 
@@ -35,6 +36,12 @@ import { resolveVoice } from "./voices";
  * what the person said after every line (`onTurn`), and reports the end
  * (`onStatus`). Each of these returns the next thing to say and never throws:
  * a failure on our side becomes a spoken apology, not a dead line.
+ *
+ * Real-time voice (relay.ts) carries the same conversation over a live
+ * connection instead: the provider transcribes and speaks, and each turn runs
+ * through the same `takeTurn` as the HTTP path, so the script, the checks and
+ * the records are identical. Which path a call takes is chosen when it
+ * connects (Settings > Phone calls > Real-time voice).
  */
 
 interface CallState {
@@ -56,6 +63,10 @@ interface CallState {
   pendingCheckout?: OnlineTier | null; // the plan just read back, waiting for the caller's yes
   offTrack?: number;          // lines the playbook check replaced
   unclear?: number;           // turns in a row where the caller could not be made out
+  /** Real-time voice: what the caller had heard of the last line when they cut in (told to the model once). */
+  cutIn?: string | null;
+  /** Real-time voice: the live connection failed and the call carried on over the HTTP path. */
+  relayFailed?: boolean;
 }
 
 interface Signals {
@@ -103,7 +114,7 @@ interface CallRow {
 const FINAL = new Set(["completed", "no_answer", "busy", "voicemail", "failed", "cancelled", "blocked"]);
 const MAX_TURNS = 80;
 
-export const voiceUrl = (kind: "answer" | "turn" | "status" | "amd", token: string) => `${env().APP_URL.replace(/\/$/, "")}/api/voice/${kind}/${token}`;
+export const voiceUrl = (kind: "answer" | "turn" | "status" | "amd" | "relay-end", token: string) => `${env().APP_URL.replace(/\/$/, "")}/api/voice/${kind}/${token}`;
 
 let brain: Brain = claudeBrain;
 let reviewer: Reviewer = claudeReviewer;
@@ -264,7 +275,12 @@ export async function onAnswer(token: string): Promise<string> {
   await sql`update calls set status='in_progress', started_at=now(), updated_at=now() where id=${c.id} and status='dialing'`;
   const line = outboundGreeting({ contactName: c.contact_name, clinic: c.brief.clinic?.name ?? null, source: await consentSource(c.consent_id) });
   await addTurn(c.id, "agent", line, { action: "continue", fixed: true });
-  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief), voice: resolveVoice((await getSettings()).call_voice), timeout: listenFor(line) });
+  const settings = await getSettings();
+  const spokenIn = resolveVoice(settings.call_voice);
+  if (relayWanted(settings, c.phone)) {
+    return conversationRelay({ url: relaySocketUrl(c.token), actionUrl: relayActionUrl(c.token), greeting: line, voice: spokenIn, hints: hintsFor(c.brief), dtmf: false });
+  }
+  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(c.brief), voice: spokenIn, timeout: listenFor(line) });
 }
 
 function hintsFor(b: CallBrief | null): string[] {
@@ -331,7 +347,11 @@ export async function onIncoming(p: { callSid: string; from: string }): Promise<
   const c = (await loadCall({ id }))!;
   const line = inboundGreeting(brief.clinic?.name ?? null);
   await addTurn(id, "agent", line, { action: "continue", fixed: true });
-  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6, voice: resolveVoice(settings.call_voice), timeout: listenFor(line) });
+  const spokenIn = resolveVoice(settings.call_voice);
+  if (relayWanted(settings, phone)) {
+    return conversationRelay({ url: relaySocketUrl(c.token), actionUrl: relayActionUrl(c.token), greeting: line, voice: spokenIn, hints: hintsFor(brief), dtmf: !brief.clinic });
+  }
+  return sayAndListen(line, voiceUrl("turn", c.token), { hints: hintsFor(brief), digits: brief.clinic ? undefined : 6, voice: spokenIn, timeout: listenFor(line) });
 }
 
 // ---------------------------------------------------------------------------
@@ -435,26 +455,54 @@ export interface TurnInput {
   digits?: string | null;
 }
 
+/** How to listen after a line: words that help recognition, keyed digits wanted, seconds of silence before a check. */
+export interface Listen {
+  hints: string[];
+  digits?: number;
+  timeout: number;
+}
+
+/**
+ * What one turn comes to, whatever carries the call: a line to say and what follows it (listen for the
+ * caller, or hang up), or a silent hang-up. The HTTP path renders it as TwiML (`turnTwiml`), real-time
+ * voice sends it over the live connection (relay.ts).
+ */
+export type TurnOutcome =
+  | { kind: "hangup" }
+  | { kind: "say"; line: string; action: Action; voice: string; listen: Listen };
+
+const HANG_UP: TurnOutcome = { kind: "hangup" };
+
 /** The provider posts what the person said; the answer is the next line. */
 export async function onTurn(token: string, input: TurnInput): Promise<string> {
+  return turnTwiml(await takeTurn(token, input), voiceUrl("turn", token));
+}
+
+export function turnTwiml(o: TurnOutcome, turnUrl: string): string {
+  if (o.kind === "hangup") return hangUp();
+  return o.action === "continue" ? sayAndListen(o.line, turnUrl, { ...o.listen, voice: o.voice }) : sayAndHangUp(o.line, o.voice);
+}
+
+function listenAfter(c: CallRow, line: string): Listen {
+  // until the clinic is known, six keyed digits end the wait at once: they are a report code
+  const hints = [...hintsFor(c.brief), ...(c.state.lookup?.found ?? []).flatMap((f) => [f.name, f.city ?? ""])].filter(Boolean);
+  return { hints, digits: c.clinic_id ? undefined : 6, timeout: listenFor(line) };
+}
+
+/** One turn of the conversation: what the person said in, the next line (and what follows it) out. */
+export async function takeTurn(token: string, input: TurnInput): Promise<TurnOutcome> {
   const c = await loadCall({ token });
-  if (!c || c.status !== "in_progress" || !c.brief) return hangUp();
+  if (!c || c.status !== "in_progress" || !c.brief) return HANG_UP;
   const settings = await getSettings();
-  const turnUrl = voiceUrl("turn", c.token);
   const owner = c.brief.contact.ownerName;
   const heard = (input.speech ?? "").replace(/\s+/g, " ").trim().slice(0, 1000) || (input.digits ?? "").replace(/\D/g, "").slice(0, 20);
   const spokenIn = resolveVoice(settings.call_voice);
   // Every line said through here is the service's own fixed text unless it is marked as the model's.
-  const say = async (line: string, action: Action, extra: { blockedText?: string | null; flags?: SpokenFlag[]; fromModel?: boolean } = {}) => {
+  const say = async (line: string, action: Action, extra: { blockedText?: string | null; flags?: SpokenFlag[]; fromModel?: boolean } = {}): Promise<TurnOutcome> => {
     await addTurn(c.id, "agent", line, { action, blockedText: extra.blockedText, flags: extra.flags, fixed: !extra.fromModel });
     await saveProgress(c);
-    if (action === "continue") {
-      // until the clinic is known, six keyed digits end the wait at once: they are a report code
-      const hints = [...hintsFor(c.brief), ...(c.state.lookup?.found ?? []).flatMap((f) => [f.name, f.city ?? ""])].filter(Boolean);
-      return sayAndListen(line, turnUrl, { hints, digits: c.clinic_id ? undefined : 6, voice: spokenIn, timeout: listenFor(line) });
-    }
-    await closeOurEnd(c);
-    return sayAndHangUp(line, spokenIn);
+    if (action !== "continue") await closeOurEnd(c);
+    return { kind: "say", line, action, voice: spokenIn, listen: listenAfter(c, line) };
   };
   /** Put a clinic's report in front of the agent for the rest of the call. False when it has none that passed the gate. */
   const attach = async (clinicId: string, reportId: string | null, by: NonNullable<Signals["identified_by"]>): Promise<boolean> => {
@@ -514,9 +562,14 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
   const minutes = c.started_at ? (Date.now() - c.started_at.getTime()) / 60e3 : 0;
   if (minutes > settings.call_max_minutes + 1 || c.state.turns > MAX_TURNS) return say(LINES.timeUp(owner), "end_call");
 
+  // what the caller had heard of the last line before they cut in (real-time voice): told to the model once
+  const cutIn = c.state.cutIn ?? null;
+  c.state.cutIn = null;
+
   let turn;
   try {
     const r = await brain({
+      cutIn,
       brief: c.brief, direction: c.direction, reason: reasonFor(c, await consentSource(c.consent_id)),
       transcript: await transcript(c.id), heard, minutesElapsed: minutes, minutesLimit: settings.call_max_minutes,
       found: c.clinic_id ? undefined : c.state.lookup?.found.map((f) => ({ name: f.name, city: f.city })),
@@ -541,7 +594,7 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     c.state.voicemail = true;
     await addTurn(c.id, "system", "Answering machine or phone menu: the call was ended without leaving a message.");
     await saveProgress(c);
-    return hangUp();
+    return HANG_UP;
   }
 
   // What the caller has shown, as the model reports it, is kept on the call: the playbook's rules read
@@ -674,6 +727,70 @@ export async function onTurn(token: string, input: TurnInput): Promise<string> {
     return say(LINES.trouble(owner), "end_call", { ...extra, fromModel: false });
   }
   return say(checked.text, turn.action === "end_call" && !checked.ok ? "continue" : turn.action, extra);
+}
+
+// ---------------------------------------------------------------------------
+// Real-time voice: what the live connection reports back
+// ---------------------------------------------------------------------------
+
+/**
+ * The caller spoke over a line on the live connection. What they had heard of it is noted for the
+ * owner and told to the model on the next turn, so it does not assume the whole line was heard.
+ * A merge, not a rewrite of the state: a turn may be saving its own progress at the same moment.
+ */
+export async function noteCutIn(token: string, heardPart: string): Promise<void> {
+  const part = heardPart.replace(/\s+/g, " ").trim().slice(0, 300);
+  const sql = db();
+  const [c] = await sql<{ id: string }[]>`
+    update calls set state = state || jsonb_build_object('cutIn', ${part}::text), updated_at=now()
+    where token=${token} and status='in_progress' returning id`;
+  if (c) await addTurn(c.id, "system", part ? `The caller cut in after hearing: "${part}"` : "The caller cut in at the start of the line.");
+}
+
+/** What the live connection hands back when it ends: the last line to say, and whether the call goes on. */
+export interface RelayHandoff {
+  say?: string | null;
+  then: "hangup" | "continue";
+}
+
+export function parseHandoff(raw: string | null | undefined): RelayHandoff | null {
+  if (!raw) return null;
+  try {
+    const h = JSON.parse(raw) as Partial<RelayHandoff>;
+    if (h.then !== "hangup" && h.then !== "continue") return null;
+    return { say: typeof h.say === "string" ? h.say.slice(0, 1000) : null, then: h.then };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The provider asks what to do after the live connection ended (the <Connect action> URL):
+ *   - we ended it to hang up: say the last line, if any, and hang up;
+ *   - we ended it to stay inside the time a connection may last: say the line and open a new one;
+ *   - it failed (no hand-off from us): the call carries on over the HTTP path, so the caller is not lost.
+ */
+export async function onRelayEnd(token: string, p: { handoff?: string | null; callStatus?: string | null; sessionStatus?: string | null; errorCode?: string | null; errorMessage?: string | null }): Promise<string> {
+  const c = await loadCall({ token });
+  if (!c || p.callStatus === "completed") return hangUp();
+  const settings = await getSettings();
+  const spokenIn = resolveVoice(settings.call_voice);
+  const h = parseHandoff(p.handoff);
+  if (h?.then === "hangup" || c.status !== "in_progress" || !c.brief) return h?.say ? sayAndHangUp(h.say, spokenIn) : hangUp();
+  const listen = listenAfter(c, h?.say ?? "");
+  if (h?.then === "continue") {
+    return conversationRelay({
+      url: relaySocketUrl(c.token), actionUrl: relayActionUrl(c.token), before: h.say ?? null,
+      voice: spokenIn, hints: listen.hints, dtmf: !c.clinic_id,
+    });
+  }
+  // the live connection failed: carry on over the HTTP path
+  c.state.relayFailed = true;
+  const why = [p.sessionStatus, p.errorCode, p.errorMessage].filter(Boolean).join(" ").replace(/\s+/g, " ").slice(0, 300) || "no reason given";
+  await addTurn(c.id, "system", `The real-time connection ended unexpectedly (${why}); the call carried on over the standard line.`);
+  await addTurn(c.id, "agent", LINES.repeat, { action: "continue", fixed: true });
+  await saveProgress(c);
+  return sayAndListen(LINES.repeat, voiceUrl("turn", c.token), { ...listen, timeout: 6, voice: spokenIn });
 }
 
 // ---------------------------------------------------------------------------

@@ -38,6 +38,12 @@ export interface AppSettings {
   call_requests_per_report_per_day: number;
   /** The voice chosen for the phone agent (a <Say> voice id from calls/voices.ts); null is the default. */
   call_voice: string | null;
+  /**
+   * Real-time voice (Twilio ConversationRelay): off, only for calls to or from the numbers in
+   * call_relay_numbers, or for every call. Missing on a database without the migration: read as off.
+   */
+  call_relay?: "off" | "listed" | "all" | null;
+  call_relay_numbers?: string[] | null;
   /** Promise and pillar keys from src/lib/offer.ts that are switched on. Read them through offerSwitches(). */
   offer_promises?: string[] | null;
   offer_pillars?: string[] | null;
