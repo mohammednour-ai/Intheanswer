@@ -152,6 +152,31 @@ describe("scheduler", () => {
       expect(dec.every((k) => k.endsWith(":2026-12"))).toBe(true);
     });
 
+    it("reaches every city before searching the biggest again", async () => {
+      const sql = db();
+      const targets = await sql<{ id: number; city_id: number }[]>`select id, city_id from discovery_targets order by id`;
+      const big = targets[0].city_id;
+      const idsOf = (inBig: boolean) => targets.filter((t) => (t.city_id === big) === inBig).map((t) => t.id);
+      const s = { discovery_targets_per_day: 1 };
+      try {
+        await sql`update cities set search_priority = case when id = ${big} then 1 else 100 end`;
+        // nothing searched yet: the biggest city goes first
+        expect(await planDiscovery(WED, s)).toEqual([`discover:${idsOf(true)[0]}:2026-11`]);
+
+        // a new month: the biggest city was searched, the other never was
+        await sql`delete from jobs`;
+        await sql`update discovery_targets set last_run_at = ${at("2026-11-03")} where city_id = ${big}`;
+        expect(await planDiscovery(at("2026-12-01"), s)).toEqual([`discover:${idsOf(false)[0]}:2026-12`]);
+
+        // all searched: the one searched longest ago, whatever its size
+        await sql`delete from jobs`;
+        await sql`update discovery_targets set last_run_at = ${at("2026-10-05")} where city_id <> ${big}`;
+        expect(await planDiscovery(at("2026-12-01"), s)).toEqual([`discover:${idsOf(false)[0]}:2026-12`]);
+      } finally {
+        await sql`update cities set search_priority = 100`;
+      }
+    });
+
     it("leaves inactive targets alone and carries what the discover job needs", async () => {
       const sql = db();
       const [keep] = await sql<{ id: number; sector_id: number; city_id: number }[]>`select id, sector_id, city_id from discovery_targets order by id limit 1`;

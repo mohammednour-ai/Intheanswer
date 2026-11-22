@@ -17,7 +17,7 @@ export async function systemStatus(now: Date = new Date()) {
            j.status::text as job_status, j.last_error as job_error
     from discovery_targets t join sectors s on s.id = t.sector_id join cities c on c.id = t.city_id
     left join jobs j on j.idempotency_key = 'discover:' || t.id || ':' || ${month}
-    order by t.last_run_at asc nulls first, t.id`;
+    order by t.last_run_at asc nulls first, c.search_priority, t.id`;
 
   const upcoming = await upcomingRetests(now);
   const keys = upcoming.map((r) => `monthly_retest:${r.clinicId}:${r.cycle}`);

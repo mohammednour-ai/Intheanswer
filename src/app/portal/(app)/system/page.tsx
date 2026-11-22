@@ -145,7 +145,7 @@ export default async function SystemPage() {
 
       <h2>Discovery ({s.month})</h2>
       <p className="small muted">
-        Each active city and sector is searched once a month, {s.perDay} a business day, the one searched longest ago first.
+        Each active city and sector is searched at most once a month, {s.perDay} a business day: never-searched first (biggest cities first), then the one searched longest ago.
       </p>
       <div className="table-scroll">
         <table>
