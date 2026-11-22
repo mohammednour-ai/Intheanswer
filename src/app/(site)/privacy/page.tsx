@@ -25,7 +25,7 @@ export default function Privacy() {
         <li><strong>Report views.</strong> Whether a report link was opened, and a count. No advertising trackers.</li>
         <li><strong>What you send us.</strong> Replies, forms you complete, and details needed to deliver a paid service. Card payments are handled by Stripe; we do not see or store card numbers.</li>
       </ul>
-      <p>We do not collect patient information. If you connect your Google Business Profile as a client, we read your own reviews to count them and summarise themes; we do not store review text, reviewer names or any health detail.</p>
+      <p>Our free test, our reports and our calls with clinics do not collect patient information. If we run an AI receptionist for a client clinic, the patient messages and bookings it takes are that clinic&apos;s records: we handle them for the clinic under a written agreement with it, only through privacy-compliant tools, and use them for nothing else. If you connect your Google Business Profile as a client, we read your own reviews to count them and summarise themes; we do not store review text, reviewer names or any health detail.</p>
 
       <h2>Google Maps content</h2>
       <p>Some reports show ratings and review counts from Google Maps. These are fetched when the report is opened and are not stored by us. Use of Google Maps content is subject to the <a href="https://cloud.google.com/maps-platform/terms" rel="noreferrer">Google Maps Platform Terms of Service</a> and the <a href="https://policies.google.com/privacy" rel="noreferrer">Google Privacy Policy</a>.</p>

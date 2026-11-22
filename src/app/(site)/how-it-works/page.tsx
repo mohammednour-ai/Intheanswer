@@ -96,7 +96,7 @@ export default function HowItWorks() {
           <div className={styles.stepMain}>
             <StepTag n={1} name="We ask" />
             <h2 id="test-h" className={site.h2}>What do you test?</h2>
-            <p className={styles.text}>We put five or six questions to an AI assistant with web search turned on, located in your city. The questions are written the way a patient asks, for example &ldquo;Which dentists in Barrie can see me the same day for a dental emergency?&rdquo; The assistant is not told about your clinic.</p>
+            <p className={styles.text}>We put six questions to an AI assistant with web search turned on, located in your city. The questions are written the way a patient asks, for example &ldquo;Which dentists in Barrie can see me the same day for a dental emergency?&rdquo; The assistant is not told about your clinic.</p>
           </div>
           <div className={`${styles.stepSide} ${styles.example}`}>
             <div className={styles.ask}>
@@ -104,7 +104,7 @@ export default function HowItWorks() {
               <p className={site.bubble}>Which dentists in Barrie can see me the same day for a dental emergency?</p>
             </div>
             <dl className={styles.facts}>
-              <div><dt>Questions</dt><dd>Five or six</dd></div>
+              <div><dt>Questions</dt><dd>Six</dd></div>
               <div><dt>Web search</dt><dd>On</dd></div>
               <div><dt>Asked from</dt><dd>Your city</dd></div>
               <div><dt>Told about your clinic</dt><dd>No</dd></div>

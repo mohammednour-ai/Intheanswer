@@ -76,6 +76,7 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
               <li><Link href="/unsubscribe">Unsubscribe</Link></li>
               <li><Link href="/sample">Sample report</Link></li>
               <li><Link href="/bot">About our crawler</Link></li>
+              <li><Link href="/how-we-counted">How we counted</Link></li>
               <li><Link href="/contact">Contact</Link></li>
             </ul>
           </nav>

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 import { env, ownerDetails } from "@/lib/env";
@@ -40,12 +41,28 @@ const EXAMPLES = [
 /** The page is rebuilt at most every ten minutes, so a change to the offer switches in the portal shows soon after. */
 export const revalidate = 600;
 
+/** The browser tab and search result say what we do, not only our name. */
+export const metadata: Metadata = {
+  title: { absolute: "In The Answer: AI visibility and websites for Ontario clinics" },
+  description:
+    "We test whether AI assistants recommend your Ontario clinic when patients ask, show you what on your website stands in the way, and fix it. Free report for dental, family and medspa clinics.",
+};
+
+/** The questions below as schema.org FAQPage data, so search engines and AI tools can read them as questions and answers. */
+function faqJsonLd(items: { q: string; a: string }[]) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: items.map((x) => ({ "@type": "Question", name: x.q, acceptedAnswer: { "@type": "Answer", text: x.a } })),
+  };
+}
+
 /** What a monthly report holds today (the parts of ComparisonData in src/lib/reports/monthly.ts). */
 const MONTHLY = [
   { name: "Every question, asked again", text: "The result now, beside the result before." },
   { name: "What went live", text: "Each new page, with its address and the date it was published." },
   { name: "What changed on your website", text: "Each check that moved, with what we saw before and what we see now." },
-  { name: "What it cannot tell you", text: "The same limits as the first report: one assistant, a handful of questions, one day." },
+  { name: "What it cannot tell you", text: "The same limits as the first report: one assistant, six questions, one day." },
 ];
 
 /** The "now" results in the monthly illustration. Invented, like the clinic: one result moves, two do not. */
@@ -54,7 +71,7 @@ const NOW: RowStatus[] = ["listed_only", "not_named", "listed_only"];
 /** Rules the service already follows. Each one is enforced in code or written into the terms on the pricing page. */
 const CARE = [
   { name: "It says it is an AI", text: "Every report names the AI system that prepared it, and our phone assistant says it is an AI at the start of every call." },
-  { name: "No patient information", text: "We read only your public website. We do not collect patient information, and we ask you not to share any on a call." },
+  { name: "Patient information", text: "Our tests, reports and calls use only your public website. If we run an AI receptionist for you, the patient messages and bookings it takes are your clinic's records, kept in privacy-compliant tools under a written agreement with you." },
   { name: "Nothing is published without you", text: "You confirm every clinical or pricing fact before it goes on your site, and you approve each new page." },
   { name: "No superlatives, no promises", text: "Wording is checked before anything is sent or published: no superlatives, no outcome promises, no comparisons with other clinics." },
   { name: "Your regulator's rules stay with you", text: "The final check of wording against your regulator's advertising rules is yours." },
@@ -186,8 +203,9 @@ export default async function Home() {
               <li><span aria-hidden="true" className={`${h.swatch} ${h.swatchBlue}`} /><strong>{recommendedOnce}</strong><span>recommended in at least one</span></li>
             </ul>
             <p className={h.muted13}>
-              Six patient questions for each clinic, put to an AI assistant with web search on. {TESTED.clinics} clinics
-              in {TESTED.cities} Ontario cities, counted on {TESTED.asOf}.
+              Six patient questions for each clinic, put to an AI assistant with web search on. Every clinic we tested in{" "}
+              {TESTED.cities} Ontario cities, {TESTED.from.replace(/ \d{4}$/, "")} to {TESTED.to}.{" "}
+              <Link href="/how-we-counted" className={h.telLink}>How we counted</Link>
             </p>
           </div>
         </div>
@@ -461,7 +479,7 @@ export default async function Home() {
             <div className={site.inkSide}>
               <Snapshot />
               <ul className={h.ruled}>
-                <li>Five or six questions, not every way a patient might ask.</li>
+                <li>Six questions, not every way a patient might ask.</li>
                 <li>The accessibility scan is automated checks, not a full accessibility audit.</li>
               </ul>
             </div>
@@ -508,6 +526,7 @@ export default async function Home() {
             </div>
             <Link href="/pricing#questions" className={h.textLink}>Contracts, cancelling and refunds</Link>
           </div>
+          <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd(faq(switches))).replace(/</g, "\\u003c") }} />
           <dl className={h.faq}>
             {faq(switches).map((x) => (
               <div key={x.q}>
@@ -548,7 +567,7 @@ export default async function Home() {
             <h2 className={h.h2Small}>If we emailed you</h2>
             <ul className={h.emailRules}>
               <li>We only write to an address a clinic publishes on its own website, and each email names the page where we found it.</li>
-              <li>We write at most twice.</li>
+              <li>We write at most twice: the report, and one follow-up if you do not reply. If you reply, we stop.</li>
               <li>Every email has an unsubscribe link that works at once, without a login.</li>
               <li>If a site says not to send solicitations, we do not write.</li>
             </ul>
@@ -560,7 +579,7 @@ export default async function Home() {
       <ClosingBand
         id="close-h"
         heading="See what AI says about your clinic."
-        lead="Free. The form takes about two minutes, and the report usually reaches you within one business day."
+        lead="Free. Two minutes to ask for it; the report usually reaches you within one business day."
       >
         <a href="#get-report" className={site.btnPrimary}>Get your free AI visibility test</a>
         <Link href="/sample" className={site.link}>See a sample report</Link>
