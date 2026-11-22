@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ownerDetails } from "@/lib/env";
+import { TIERS, cad } from "@/lib/offer";
 import { markSvg } from "@/lib/brand";
 import styles from "./site.module.css";
 import { NavLinks } from "./NavLinks";
@@ -25,7 +26,7 @@ function orgJsonLd() {
     address: o.mailingAddress,
     areaServed: { "@type": "AdministrativeArea", name: "Ontario, Canada" },
     knowsLanguage: "en",
-    priceRange: "200 CAD one time, or from 50 CAD per month",
+    priceRange: `${cad(TIERS.report.oneTimeCents)} one time, or from ${cad(TIERS.visibility.monthlyCents)} per month`,
     openingHours: "Mo-Fr 09:00-17:00",
     description:
       "In The Answer tests whether AI assistants name an Ontario clinic when patients ask for a recommendation, reports what was found on the clinic's website, and fixes it.",

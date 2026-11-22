@@ -161,6 +161,21 @@
 .planMain .meter .on { background: var(--white); }
 .planList { margin: 0; padding: 16px 0 0 18px; display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-m); color: var(--ink-2); }
 .planMain .planList { color: var(--line); }
+.planFrom { font-size: .4em; font-weight: 500; letter-spacing: 0; }
+/* the one-time report, on one line under the three plans */
+.planAlso { border: 1.5px solid var(--line-strong); border-radius: var(--radius-l); padding: var(--fluid-s) var(--fluid-m); display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--gap-cols); }
+.planAlsoHead { flex: 2 1 280px; min-width: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.planAlsoName { margin: 0; font-family: var(--font-head); font-weight: 700; font-size: var(--text-h3); line-height: 1.25; }
+.planAlsoText { flex: 3 1 360px; min-width: 0; margin: 0; font-size: var(--text-m); color: var(--ink-2); text-wrap: pretty; }
+/* an eyebrow over a heading */
+.headCol { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* ---------- promises (Promises.tsx) ---------- */
+.promises { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: var(--fluid-s); }
+.promises > div { background: var(--soft); border-radius: var(--radius-m); padding: var(--fluid-s); display: flex; flex-direction: column; gap: var(--space-2); }
+.promises dt { font-family: var(--font-head); font-weight: 700; font-size: var(--text-h4); line-height: 1.25; }
+.promises dd { margin: 0; font-size: var(--text-m); color: var(--ink-2); text-wrap: pretty; }
+
 .glance { list-style: none; margin: 18px 0 0; padding: 0; border-top: 2px solid var(--ink); display: flex; flex-direction: column; font-size: var(--text-m); }
 .glance li { padding: 10px 0; border-bottom: 1px solid var(--line-strong); display: flex; flex-direction: column; }
 .glance strong { font-weight: 700; }

@@ -3,6 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ResultMark } from "../ResultMark";
 import { Snapshot } from "../Snapshot";
+import { TIERS, TIER_ORDER } from "@/lib/offer";
 import { ClosingBand } from "../ClosingBand";
 import { Banner } from "../Banner";
 import site from "../site.module.css";
@@ -240,21 +241,17 @@ export default function HowItWorks() {
             <Link className={styles.blueLink} href="/pricing">See pricing</Link>
           </div>
           <ul className={styles.buy}>
-            <li>
-              <h3 className={styles.buyName}>One-time report</h3>
-              <p className={styles.buyWho}>Your web person installs</p>
-              <p className={styles.buyText}>You receive every finding and the fix files, a short form for the facts only you know, and a retest four weeks later.</p>
-            </li>
-            <li>
-              <h3 className={styles.buyName}>Monthly reports</h3>
-              <p className={styles.buyWho}>Your web person installs</p>
-              <p className={styles.buyText}>You get the same report and files, then an updated report every month.</p>
-            </li>
-            <li className={styles.buyMain}>
-              <h3 className={styles.buyName}>Full service plan</h3>
-              <p className={styles.buyWho}><span className={styles.weDo}>We do the work for you</span></p>
-              <p className={styles.buyText}>We renovate your site or take it over, install the fixes, add two answer pages a month for your approval, and retest every month.</p>
-            </li>
+            {TIER_ORDER.map((k) => {
+              const plan = TIERS[k];
+              const weDo = plan.whoDoesIt.startsWith("We ");
+              return (
+                <li key={k} className={k === "growth" ? styles.buyMain : undefined}>
+                  <h3 className={styles.buyName}>{plan.name}</h3>
+                  <p className={styles.buyWho}>{weDo ? <span className={styles.weDo}>{plan.whoDoesIt}</span> : plan.whoDoesIt}</p>
+                  <p className={styles.buyText}>{plan.summary}</p>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </section>

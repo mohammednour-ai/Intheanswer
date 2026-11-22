@@ -1,8 +1,22 @@
 import Link from "next/link";
-import { ownerDetails, priceNote } from "@/lib/env";
+import { priceNote } from "@/lib/env";
+import { NEVER_PROMISED, REPORT_CREDIT_TEXT, TIERS, cad, priceText, termText, tierIncludes, type Switches, type TierKey } from "@/lib/offer";
 import styles from "./site.module.css";
 
-/** Twelve cells, the first `months` filled: how long each option commits you, at a glance. */
+/** The three monthly plans, in order. The one-time report is stated under them. */
+const PLANS: TierKey[] = ["visibility", "growth", "transformation"];
+/** The plan drawn as the ink card. */
+const MAIN: TierKey = "growth";
+
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** The amount set large on a card. */
+const figure = (key: TierKey) => cad(TIERS[key].oneTimeCents ?? TIERS[key].monthlyCents);
+
+/** What follows the amount in the published price: "a month", "a month, plus 500 CAD setup", "one time". */
+const afterFigure = (key: TierKey) => priceText(key).replace(/^from\s+/, "").replace(figure(key), "").replace(/^[\s,]+/, "");
+
+/** Twelve cells, the first `months` filled: how long each plan commits you, at a glance. */
 function Meter({ months }: { months: number }) {
   return (
     <span className={styles.meter} aria-hidden="true">
@@ -13,98 +27,80 @@ function Meter({ months }: { months: number }) {
   );
 }
 
-/** "3 months" -> 3; a placeholder term draws an empty meter. */
-const monthsOf = (term: string) => Math.min(12, Number(term.match(/^(\d+)/)?.[1] ?? 0));
-
 /**
- * The three paid options as cards whose rows line up (price, who installs, commitment, retests, what you get).
- * The full service plan is the ink card; only "We do the work for you" is blue.
+ * The plans, read from src/lib/offer.ts: three cards whose rows line up (price, who does the work,
+ * commitment, retests, what is included), then the one-time report on one line under them.
+ * Growth is the ink card; only "We do the work for you" is blue. `switches` is the owner's choice
+ * of what is offered (see switches.ts): lines of a pillar that is switched off are left out.
  */
 export function Offers({
-  heading = "Three ways to fix it",
-  eyebrow = "What does fixing it cost?",
+  switches,
+  heading = "Three plans, each building on the last",
+  eyebrow = "What does it cost?",
   headingLevel = 2,
 }: {
+  switches: Switches;
   heading?: string;
   eyebrow?: string;
   headingLevel?: 2 | 3;
 }) {
-  const o = ownerDetails();
   const H = headingLevel === 2 ? "h2" : "h3";
   const Name = headingLevel === 2 ? "h3" : "h4";
-  const reportsTerm = `Minimum term ${o.reportsMinTerm}`;
-  const contract = `${o.contractTerm} contract`;
+  const report = TIERS.report;
   return (
     <section className={`${styles.band} ${styles.bandRule}`} aria-labelledby="plans-h">
       <div className={`${styles.container} ${styles.stack}`}>
         <div className={styles.split}>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div className={styles.headCol}>
             <span className={styles.eyebrow}>{eyebrow}</span>
             <H id="plans-h" className={styles.h2}>{heading}</H>
           </div>
           <div>
             <p className={styles.body2} style={{ margin: 0 }}>
-              Two things separate the options: who installs the fixes, and how long you commit. Each card states them on the same lines.
+              Each plan includes the one before it. The cards state the price, the term and the work on the same lines.
             </p>
-            <ul className={styles.glance} aria-label="The three options in brief">
-              <li><strong>One time: 200 CAD</strong><span>Your web person installs. No contract.</span></li>
-              <li><strong>Monthly reports: 150 CAD, then 50 CAD per month</strong><span>Your web person installs. {reportsTerm}.</span></li>
-              <li><strong>Full service plan: 200 CAD per month</strong><span>We do the work for you. {contract[0].toUpperCase() + contract.slice(1)}.</span></li>
+            <ul className={styles.glance} aria-label="The plans in brief">
+              {PLANS.map((k) => (
+                <li key={k}><strong>{TIERS[k].name}: {priceText(k)}</strong><span>{TIERS[k].whoDoesIt}. {cap(termText(k))}.</span></li>
+              ))}
             </ul>
           </div>
         </div>
 
         <div className={styles.plans}>
-          <article className={styles.plan}>
-            <div className={styles.planHead}>
-              <Name className={styles.planName}>One time</Name>
-              <p className={styles.planPrice}>200 CAD</p>
-              <p className={styles.planSub}>Full report and fix files</p>
-            </div>
-            <dl className={`${styles.planRow} ${styles.planRowFirst}`}><dt>Who installs the fixes</dt><dd className={styles.planValue}>Your web person</dd></dl>
-            <dl className={styles.planRow}><dt>How long you commit</dt><dd><Meter months={0} /><span className={styles.planValue}>No contract</span></dd></dl>
-            <dl className={styles.planRow}><dt>Retests</dt><dd className={styles.planRetest}>One retest four weeks later</dd></dl>
-            <ul className={styles.planList}>
-              <li>Every finding, with what we saw and the fix</li>
-              <li>Ready-to-use files for your web person: question and answer drafts, one hours block, a fees and coverage template, structured data, a directory correction list, and the sources assistants used</li>
-              <li>A second report after the retest, showing what changed</li>
-            </ul>
-          </article>
+          {PLANS.map((k) => {
+            const t = TIERS[k];
+            const weDo = t.whoDoesIt.startsWith("We ");
+            return (
+              <article key={k} className={k === MAIN ? `${styles.plan} ${styles.planMain}` : styles.plan}>
+                <div className={styles.planHead}>
+                  <Name className={styles.planName}>{t.name}</Name>
+                  <p className={styles.planPrice}>{t.priceFrom ? <span className={styles.planFrom}>from </span> : null}{figure(k)}</p>
+                  <p className={styles.planSub}>{afterFigure(k)}</p>
+                </div>
+                <dl className={`${styles.planRow} ${styles.planRowFirst}`}>
+                  <dt>Who does the work</dt>
+                  <dd className={weDo ? undefined : styles.planValue}>{weDo ? <span className={styles.weDo}>{t.whoDoesIt}</span> : t.whoDoesIt}</dd>
+                </dl>
+                <dl className={styles.planRow}>
+                  <dt>How long you commit</dt>
+                  <dd><Meter months={t.minTermMonths ?? 0} /><span className={styles.planValue}>{cap(termText(k))}</span></dd>
+                </dl>
+                <dl className={styles.planRow}><dt>Retests</dt><dd className={styles.planRetest}>{t.retests}</dd></dl>
+                <ul className={styles.planList}>
+                  {tierIncludes(k, switches).map((line) => <li key={line}>{line}</li>)}
+                </ul>
+              </article>
+            );
+          })}
+        </div>
 
-          <article className={styles.plan}>
-            <div className={styles.planHead}>
-              <Name className={styles.planName}>Monthly reports</Name>
-              <p className={styles.planPrice}>150 CAD</p>
-              <p className={styles.planSub}>first month, then 50 CAD per month</p>
-            </div>
-            <dl className={`${styles.planRow} ${styles.planRowFirst}`}><dt>Who installs the fixes</dt><dd className={styles.planValue}>Your web person</dd></dl>
-            <dl className={styles.planRow}><dt>How long you commit</dt><dd><Meter months={monthsOf(o.reportsMinTerm)} /><span className={styles.planValue}>{reportsTerm}</span></dd></dl>
-            <dl className={styles.planRow}><dt>Retests</dt><dd className={styles.planRetest}>Retested every month</dd></dl>
-            <ul className={styles.planList}>
-              <li>The full report and fix files in the first month</li>
-              <li>After that, the same questions and your website are retested every month</li>
-              <li>The updated report, with what changed since the last one</li>
-            </ul>
-          </article>
-
-          <article className={`${styles.plan} ${styles.planMain}`}>
-            <div className={styles.planHead}>
-              <Name className={styles.planName}>Full service plan</Name>
-              <p className={styles.planPrice}>200 CAD</p>
-              <p className={styles.planSub}>per month</p>
-            </div>
-            <dl className={`${styles.planRow} ${styles.planRowFirst}`}><dt>Who installs the fixes</dt><dd><span className={styles.weDo}>We do the work for you</span></dd></dl>
-            <dl className={styles.planRow}><dt>How long you commit</dt><dd><Meter months={monthsOf(o.minTerm)} /><span className={styles.planValue}>{contract[0].toUpperCase() + contract.slice(1)}</span></dd></dl>
-            <dl className={styles.planRow}><dt>Retests</dt><dd className={styles.planRetest}>Retested every month</dd></dl>
-            <ul className={styles.planList}>
-              <li>Your website renovated, or taken over and run by us, with every fix installed</li>
-              <li>Two new answer pages each month, written for the questions patients ask</li>
-              <li>The same questions retested every month, with a before and after</li>
-              <li>A watch on the clinics named beside you</li>
-              <li>Hours, notices and listings kept current</li>
-              <li>Questions answered within one business day</li>
-            </ul>
-          </article>
+        <div className={styles.planAlso}>
+          <div className={styles.planAlsoHead}>
+            <Name className={styles.planName}>Or one time</Name>
+            <p className={styles.planAlsoName}>{report.name}: {priceText("report")}</p>
+          </div>
+          <p className={styles.planAlsoText}>{report.summary} {report.retests}. {REPORT_CREDIT_TEXT}</p>
         </div>
 
         <div className={styles.actions}>
@@ -114,11 +110,11 @@ export function Offers({
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
           </Link>
           <p className={styles.actionsNote}>
-            All three start in the same place. You read your free report first, and buy from it only if you want to.
+            Every plan starts in the same place. You read your free report first, and buy from it only if you want to. {TIERS.transformation.name} is quoted after a review.
           </p>
         </div>
         <p className={`${styles.fine} ${styles.fineRuled}`}>
-          {priceNote()} No one can guarantee what an AI assistant will say; we report what it said and fix what we can see.
+          {priceNote()} {NEVER_PROMISED}
         </p>
       </div>
     </section>

@@ -3,11 +3,14 @@ import Link from "next/link";
 import { env, ownerDetails } from "@/lib/env";
 import { COPILOT_NAME } from "@/lib/brand";
 import { displayPhone } from "@/lib/calls/phone";
+import { POSITIONING, PROMISES, TIERS, pillarsOn, termText, type Switches } from "@/lib/offer";
 import { sampleTeaser } from "@/lib/reports/sample";
 import { rowTrend } from "@/lib/reports/monthly";
 import type { RowStatus } from "@/lib/reports/types";
 import { SelfServeBox } from "./SelfServeBox";
 import { Offers } from "./Offers";
+import { Promises } from "./Promises";
+import { siteSwitches } from "./switches";
 import { ResultMark } from "./ResultMark";
 import { Snapshot } from "./Snapshot";
 import { ClosingBand } from "./ClosingBand";
@@ -34,12 +37,8 @@ const EXAMPLES = [
   { kind: "Medspas", photo: roomMedspa, question: "Which medspas near me list their prices for injectables, and who does the treatment?" },
 ];
 
-/** What the company does. Each line names work this service already carries out. */
-const SERVICES = [
-  { name: "Websites and systems", text: "We build, renovate and run websites, and the forms and systems behind them." },
-  { name: "AI integration", text: "We connect AI to a business's own website, information and daily work. The assistant that prepares our reports is one we built." },
-  { name: "AI marketing", text: "We get a business named when people ask an AI assistant instead of a search engine: we test, fix what stands in the way, and test again." },
-];
+/** The page is rebuilt at most every ten minutes, so a change to the offer switches in the portal shows soon after. */
+export const revalidate = 600;
 
 /** What a monthly report holds today (the parts of ComparisonData in src/lib/reports/monthly.ts). */
 const MONTHLY = [
@@ -61,11 +60,17 @@ const CARE = [
   { name: "Your regulator's rules stay with you", text: "The final check of wording against your regulator's advertising rules is yours." },
 ];
 
-/** Questions a clinic asks before the test. The answers repeat what the plans and the pricing page already state. */
-const FAQ = [
+/** Questions a clinic asks before the test. Plan names, terms and promises are read from src/lib/offer.ts. */
+const faq = (switches: Switches) => [
   { q: "Can you guarantee that my clinic will be named?", a: "No. No one can guarantee what an AI assistant will say. We report what it said, fix what we can see on your website, and test again." },
-  { q: "What do you need from us?", a: "For the free test, your website address and an email address at the clinic. If you choose the full service plan, we send an intake form, and you confirm every clinical or pricing fact before it is published." },
-  { q: "What happens if we leave?", a: "The one-time report has no contract. A monthly plan can be ended at any time after its minimum term or contract. Your domain name and your content stay yours, and we hand everything back if the plan ends." },
+  { q: "What do you need from us?", a: "For the free test, your website address and an email address at the clinic. If you start a monthly plan, we send an intake form, and you confirm every clinical or pricing fact before it is published." },
+  {
+    q: "What happens if we leave?",
+    a: [
+      `The one-time report has ${termText("report")}. ${TIERS.visibility.name} is ${termText("visibility")}; ${TIERS.growth.name} and ${TIERS.transformation.name} have a ${termText("growth")}.`,
+      switches.promises.includes("ownership") ? PROMISES.ownership.text : "",
+    ].filter(Boolean).join(" "),
+  },
   { q: "Who does the work, a person or an AI?", a: `Reports are prepared by ${COPILOT_NAME}, an AI system, and every claim is checked against stored evidence before a report is sent. Your questions are answered by a person within one business day.` },
 ];
 
@@ -84,7 +89,8 @@ function seenOn(f: { text: string; evidence: { url?: string | null }[] }): strin
   return [...f.text.matchAll(/\(([^\s()]+\.[^\s()]+)\)/g)].map((m) => m[1]);
 }
 
-export default function Home() {
+export default async function Home() {
+  const switches = await siteSwitches();
   const o = ownerDetails();
   const sample = sampleTeaser();
   const rows = sample.rows.slice(1, 4);
@@ -295,17 +301,14 @@ export default function Home() {
           <div className={h.ownerLeft}>
             <div className={h.col8}>
               <span className={site.eyebrow}>Who is behind it?</span>
-              <h2 id="owner-h" className={site.h2}>An Ontario company for websites, systems and AI</h2>
+              <h2 id="owner-h" className={site.h2}>One partner, one monthly plan</h2>
             </div>
-            <p className={h.about}>
-              In The Answer is an Ontario company. We build websites and the systems behind them, connect AI to the way a
-              business already works, and help a business be found by people who ask an AI assistant.
-            </p>
+            <p className={h.about}>{POSITIONING}</p>
             <ul className={h.services}>
-              {SERVICES.map((s) => (
-                <li key={s.name}>
-                  <span className={h.serviceName}>{s.name}</span>
-                  <span className={h.serviceText}>{s.text}</span>
+              {pillarsOn(switches).map((p) => (
+                <li key={p.key}>
+                  <span className={h.serviceName}>{p.title}</span>
+                  <span className={h.serviceText}>{p.text}</span>
                 </li>
               ))}
             </ul>
@@ -367,8 +370,8 @@ export default function Home() {
             </li>
             <li className={h.step}>
               <div className={h.stepHead}><span aria-hidden="true" className={h.stepNum}>3</span><h3 className={h.stepTitle}>Build</h3></div>
-              <span className={h.stepTag}>Full service plan</span>
-              <p className={h.stepText}>We install the fixes, or renovate your website and run it for you. You approve each new page before it goes live.</p>
+              <span className={h.stepTag}>{TIERS.visibility.name} or {TIERS.growth.name}</span>
+              <p className={h.stepText}>We publish the answer pages and fix the listings. With {TIERS.growth.name} we also rebuild your website and keep it current. You approve each new page before it goes live.</p>
               <div className={h.stepBox}>
                 <ul className={h.chips}>
                   {["Hours", "New patients", "Fees", "Practitioners", "Booking", "Speed on a phone", "Readable by tools"].map((c) => <li key={c}>{c}</li>)}
@@ -382,9 +385,9 @@ export default function Home() {
               <p className={h.stepText}>The same questions are asked again each month. You get a report with each result before and now, and what we changed.</p>
               <div className={h.stepBox}>
                 <ul className={h.chips}>
-                  {["Monthly retest", "Two new answer pages", "Hours and notices kept current", "A watch on the clinics named beside you"].map((c) => <li key={c}>{c}</li>)}
+                  {["Monthly retest", "New answer pages", "Listings kept current", "A watch on the clinics named beside you"].map((c) => <li key={c}>{c}</li>)}
                 </ul>
-                <p className={h.muted13}>With the full service plan.</p>
+                <p className={h.muted13}>On every monthly plan.</p>
               </div>
             </li>
           </ol>
@@ -400,7 +403,7 @@ export default function Home() {
               <h2 id="monthly-h" className={site.h2}>Your monthly report</h2>
             </div>
             <p className={site.body2}>
-              With monthly reports or the full service plan, the same questions are asked again every month. The report
+              On every monthly plan, the same questions are asked again every month. The report
               sets each result beside the one before, so you can see what moved and what did not.
             </p>
             <ul className={h.monthlyList}>
@@ -442,7 +445,10 @@ export default function Home() {
       </section>
 
       {/* ---------- plans ---------- */}
-      <Offers />
+      <Offers switches={switches} />
+
+      {/* ---------- peace of mind ---------- */}
+      <Promises switches={switches} />
 
       {/* ---------- limits ---------- */}
       <section className={`${site.band} ${site.bandInk} ${h.reset}`} aria-labelledby="limits-h">
@@ -503,7 +509,7 @@ export default function Home() {
             <Link href="/pricing#questions" className={h.textLink}>Contracts, cancelling and refunds</Link>
           </div>
           <dl className={h.faq}>
-            {FAQ.map((x) => (
+            {faq(switches).map((x) => (
               <div key={x.q}>
                 <dt>{x.q}</dt>
                 <dd>{x.a}</dd>

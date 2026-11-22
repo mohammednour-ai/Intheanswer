@@ -1,19 +1,29 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ownerDetails } from "@/lib/env";
+import { PILLARS, PROMISES, REPORT_CREDIT_TEXT, TIERS, TIER_ORDER, priceText, termText, type TierKey } from "@/lib/offer";
 import { Offers } from "../Offers";
+import { Promises } from "../Promises";
 import { ClosingBand } from "../ClosingBand";
 import { Banner } from "../Banner";
+import { siteSwitches } from "../switches";
 import site from "../site.module.css";
 import styles from "./pricing.module.css";
 import bannerReception from "../images/banner-reception.jpg";
 
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** The three monthly plans, for the questions that compare them. */
+const PLANS: TierKey[] = ["visibility", "growth", "transformation"];
+
 export const metadata: Metadata = {
   title: "Pricing",
-  description: "The teaser report is free. The full report and fix files are 200 CAD one time. Monthly reports are 150 CAD for the first month, then 50 CAD per month. The full service plan is 200 CAD per month: website work, fixes installed, monthly retest.",
+  // every amount comes from src/lib/offer.ts, so this line cannot fall behind the cards
+  description: `The first report is free. ${PLANS.map((k) => `${TIERS[k].name} is ${priceText(k)}`).join(". ")}. ${TIERS.report.name}: ${priceText("report")}.`,
 };
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+/** The page is rebuilt at most every ten minutes, so a change to the offer switches in the portal shows soon after. */
+export const revalidate = 600;
 
 function Cross() {
   return (
@@ -23,9 +33,11 @@ function Cross() {
   );
 }
 
-export default function Pricing() {
+export default async function Pricing() {
   const o = ownerDetails();
-  const contract = `${o.contractTerm} contract`;
+  const switches = await siteSwitches();
+  const on = (key: keyof typeof PROMISES) => switches.promises.includes(key);
+  const website = switches.pillars.includes("website");
   return (
     <>
       <Banner id="hero-h" photo={bannerReception} small>
@@ -40,7 +52,9 @@ export default function Pricing() {
         </div>
       </Banner>
 
-      <Offers heading="Paid options" eyebrow="After the free report" />
+      <Offers switches={switches} heading="Plans" eyebrow="After the free report" />
+
+      <Promises switches={switches} />
 
       <section id="questions" className={`${site.band} ${site.bandSoft}`} aria-labelledby="faq-h">
         <div className={`${site.container} ${site.stack}`}>
@@ -57,68 +71,62 @@ export default function Pricing() {
               </div>
               <div className={styles.qBody}>
                 <ul className={styles.table}>
-                  <li><span className={styles.rowName}>One-time report</span><span className={styles.rowVal}>None</span></li>
-                  <li><span className={styles.rowName}>Monthly reports</span><span className={styles.rowVal}>Minimum term of {o.reportsMinTerm}</span></li>
-                  <li><span className={styles.rowName}>Full service plan</span><span className={styles.rowVal}>{cap(contract)}</span></li>
+                  {TIER_ORDER.map((k) => (
+                    <li key={k}><span className={styles.rowName}>{TIERS[k].name}</span><span className={styles.rowVal}>{cap(termText(k))}</span></li>
+                  ))}
                 </ul>
-                <p className={styles.note}>The full service plan is a {contract}, because it includes work on your website that is spread over the year. Both monthly plans are billed monthly by card.</p>
-              </div>
-            </div>
-
-            <div className={styles.q}>
-              <div className={styles.qHead}>
-                <span className={styles.qNum} aria-hidden="true">2</span>
-                <h3 className={styles.qTitle}>What is the difference between monthly reports and the full service plan?</h3>
-              </div>
-              <div className={styles.qBody}>
-                <div className={styles.pair}>
-                  <div className={styles.tile}>
-                    <span className={styles.tileLabel}>Monthly reports</span>
-                    <span className={styles.tileHead}>Your own web person makes the changes.</span>
-                    <span className={styles.tileText}>You get the findings and the fix files, and a fresh report each month.</span>
-                  </div>
-                  <div className={`${styles.tile} ${styles.tileInk}`}>
-                    <span className={styles.tileLabel}>Full service plan</span>
-                    <span className={styles.tileHead}>We make the changes.</span>
-                    <span className={styles.tileText}>We renovate your website or take it over, install every fix, add new pages each month and keep the details current.</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className={styles.q}>
-              <div className={styles.qHead}>
-                <span className={styles.qNum} aria-hidden="true">3</span>
-                <h3 className={styles.qTitle}>What does &ldquo;renovated or taken over&rdquo; mean?</h3>
-              </div>
-              <div className={styles.qBody}>
-                <div className={styles.pair}>
-                  <div className={styles.tile}>
-                    <span className={styles.tileLabel}>If your site is sound</span>
-                    <span className={styles.tilePlain}>We repair and upgrade it where it stands.</span>
-                  </div>
-                  <div className={styles.tile}>
-                    <span className={styles.tileLabel}>If it cannot be brought up to standard</span>
-                    <span className={styles.tilePlain}>We rebuild it and run it for you.</span>
-                  </div>
-                </div>
-                <p className={styles.check}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
-                  <span>Either way the domain name and the content stay yours, and we hand everything back if the plan ends.</span>
+                <p className={styles.note}>
+                  {TIERS.growth.name} and {TIERS.transformation.name} have a minimum term because they include work on your website and systems that is spread over months. Monthly plans are billed monthly by card.
                 </p>
               </div>
             </div>
 
             <div className={styles.q}>
               <div className={styles.qHead}>
-                <span className={styles.qNum} aria-hidden="true">4</span>
-                <h3 className={styles.qTitle}>What does the full service plan not include?</h3>
+                <span className={styles.qNum} aria-hidden="true">2</span>
+                <h3 className={styles.qTitle}>What is the difference between the plans?</h3>
+              </div>
+              <div className={styles.qBody}>
+                <div className={styles.pair}>
+                  {PLANS.map((k) => (
+                    <div key={k} className={k === "growth" ? `${styles.tile} ${styles.tileInk}` : styles.tile}>
+                      <span className={styles.tileLabel}>{TIERS[k].name}</span>
+                      <span className={styles.tileHead}>{cap(priceText(k))}</span>
+                      <span className={styles.tileText}>{TIERS[k].summary}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className={styles.note}>{TIERS.report.name} ({priceText("report")}): {TIERS.report.summary} {REPORT_CREDIT_TEXT}</p>
+              </div>
+            </div>
+
+            {website ? (
+              <div className={styles.q}>
+                <div className={styles.qHead}>
+                  <span className={styles.qNum} aria-hidden="true">3</span>
+                  <h3 className={styles.qTitle}>What does the website rebuild in {TIERS.growth.name} cover?</h3>
+                </div>
+                <div className={styles.qBody}>
+                  <p className={styles.strong}>{PILLARS.website.text}</p>
+                  {on("ownership") ? (
+                    <p className={styles.check}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10" /></svg>
+                      <span>{PROMISES.ownership.text}</span>
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            <div className={styles.q}>
+              <div className={styles.qHead}>
+                <span className={styles.qNum} aria-hidden="true">{website ? 4 : 3}</span>
+                <h3 className={styles.qTitle}>What do the plans not include?</h3>
               </div>
               <div className={styles.qBody}>
                 <ul className={styles.chips}>
                   <li><Cross />Advertising spend</li>
                   <li><Cross />Photography</li>
-                  <li><Cross />Online booking or payment systems</li>
                   <li><Cross />Writing clinical content for you</li>
                 </ul>
                 <p className={styles.note}>Every clinical or pricing fact on your site is confirmed by you before it is published, and you are responsible for checking wording against your regulator&rsquo;s advertising rules.</p>
@@ -127,14 +135,22 @@ export default function Pricing() {
 
             <div className={styles.q}>
               <div className={styles.qHead}>
-                <span className={styles.qNum} aria-hidden="true">5</span>
+                <span className={styles.qNum} aria-hidden="true">{website ? 5 : 4}</span>
                 <h3 className={styles.qTitle}>Can I cancel or get a refund?</h3>
               </div>
               <div className={styles.qBody}>
                 <p className={styles.strong}>Write to us from the address you paid with.</p>
                 <ul className={`${styles.table} ${styles.tableStacked}`}>
-                  <li><span className={styles.rowName}>One-time report</span><span className={styles.rowVal}>Refunds are given when the report has not yet been delivered.</span></li>
-                  <li><span className={styles.rowName}>Monthly reports and the full service plan</span><span className={styles.rowVal}>A monthly plan can be ended at any time after its minimum term or contract.</span></li>
+                  <li><span className={styles.rowName}>{TIERS.report.name}</span><span className={styles.rowVal}>Refunds are given when the report has not yet been delivered.</span></li>
+                  <li>
+                    <span className={styles.rowName}>Monthly plans</span>
+                    <span className={styles.rowVal}>
+                      {on("terms")
+                        ? PROMISES.terms.text
+                        : `${TIERS.visibility.name} is ${termText("visibility")}. ${TIERS.growth.name} and ${TIERS.transformation.name} have a ${termText("growth")}.`}
+                    </span>
+                  </li>
+                  <li><span className={styles.rowName}>If you bought the report first</span><span className={styles.rowVal}>{REPORT_CREDIT_TEXT}</span></li>
                 </ul>
                 <a className={styles.mail} href={`mailto:${o.email}`}>{o.email}</a>
               </div>

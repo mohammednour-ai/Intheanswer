@@ -91,7 +91,10 @@
 .buyTitle { display: flex; flex-direction: column; gap: var(--space-2); }
 .blueLink { min-height: 44px; display: inline-flex; align-items: center; gap: var(--space-2); color: var(--blue); font-weight: 600; font-size: var(--text-m); text-underline-offset: 3px; }
 .blueLink:hover { color: var(--blue-hover); }
-.buy { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr)); gap: var(--fluid-s); }
+/* one card for each plan: one column on a phone, two on a tablet, four on a desktop */
+.buy { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--fluid-s); }
+@media (min-width: 640px) { .buy { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1080px) { .buy { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .buy li { background: var(--white); border-radius: var(--radius-l); padding: var(--fluid-m); display: flex; flex-direction: column; gap: var(--space-3); }
 .buy .buyMain { border: 2px solid var(--ink); }
 .buyName { margin: 0; font-family: var(--font-body); font-size: var(--text-xs); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); }
