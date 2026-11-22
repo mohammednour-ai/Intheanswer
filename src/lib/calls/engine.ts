@@ -16,7 +16,7 @@ import { REPORT_CREDIT_TEXT, TIERS, emailOfferLines, isOnlineTier, offeredTo, pr
 import { priceNote } from "../env";
 import { BUYING_LINES, PAINS, checkPlaybook, iceBreaker, linkSent, readBack, stageRank, type Pain, type PlaybookFlag, type Stage } from "./playbook";
 import { briefForClinic, generalBrief, linkRecipient, type CallBrief } from "./brief";
-import { claudeBrain, claudeReviewer, type Action, type Brain, type Reviewer, type TranscriptLine } from "./agent";
+import { claudeBrain, claudeReviewer, numberAnswer, type Action, type Brain, type Reviewer, type TranscriptLine } from "./agent";
 import { FALLBACK_LINE, checkSpoken, hearsOptOut, type SpokenFlag } from "./guard";
 import { displayPhone, lastTen, normalizeCanadianPhone, spokenCode } from "./phone";
 import { MAX_ATTEMPTS, callsReady, checkCall, stopAllContact, suppressPhone } from "./rules";
@@ -763,7 +763,11 @@ export async function reviewCall(callId: string, ctx?: Pick<JobContext, "cost">)
   const lines = await transcript(callId);
   const to = c.clinic_id ? await linkRecipient(c.clinic_id) : null;
   const summaryWanted = !!c.signals.summary_wanted && !!to && !c.signals.do_not_contact;
-  const r = await reviewer(c.brief, lines, { summaryForClinic: summaryWanted });
+  const r = await reviewer(c.brief, lines, {
+    summaryForClinic: summaryWanted,
+    // the reviewer knows the brief, not how the call was asked for: without this it reports the approved answer as unsupported
+    numberAnswer: numberAnswer(c.direction, reasonFor(c, await consentSource(c.consent_id))),
+  });
   if (r.costUsd > 0) await ctx?.cost({ provider: "anthropic", operation: "call_review", units: (r.usage ?? {}) as never, costUsd: r.costUsd, clinicId: c.clinic_id });
   // What was done on the call outranks how the reviewer reads it.
   const outcome = c.signals.do_not_contact ? "no_contact_wanted" : c.signals.wrong_number ? "wrong_number" : r.review.outcome;

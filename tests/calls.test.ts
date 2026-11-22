@@ -827,7 +827,22 @@ describe("the playbook on a call", () => {
       .toBe("Someone at your clinic asked for this call on your report page and typed in this number.");
     expect(numberAnswer("outbound", "The clinic replied to our email and asked to be called at this number about its report.")).toBe("Your clinic replied to our email and asked us to call this number.");
     expect(numberAnswer("outbound", "The clinic asked to be called at this number about its report; our team recorded the request and scheduled this call.")).toBe("Your clinic asked us to call this number about its report.");
-    expect(numberAnswer("inbound", "The caller phoned In The Answer's number.")).toMatch(/You phoned our number/);
+    const inbound = numberAnswer("inbound", "The caller phoned In The Answer's number.");
+    expect(inbound).toMatch(/You phoned our number/);
+    // the number is kept with the transcript (the privacy page says so): the answer must not suggest otherwise
+    expect(inbound).not.toMatch(/only for this call|for this call only|do not keep|don't keep|not stored|deleted/i);
+  });
+
+  it("gives the after-call reviewer the approved answer about the number, so it is not reported as unsupported", async () => {
+    const c = await answeredCall();
+    let given: string | undefined;
+    setReviewer(async (_b, _t, opts) => {
+      given = opts?.numberAnswer;
+      return { review: { summary: "They asked how we got the number.", outcome: "asked_questions", follow_up: null, unsupported: [], clinic_summary: null }, usage: null, costUsd: 0 };
+    });
+    await reviewCall(c.id);
+    // this call was asked for on the report page
+    expect(given).toBe("Someone at your clinic asked for this call on your report page and typed in this number.");
   });
 
   it("after a think-it-over, writes the summary for the owner to approve, and one agreed follow-up three business days later", async () => {
