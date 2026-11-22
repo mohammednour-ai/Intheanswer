@@ -11,7 +11,8 @@
     "test": "vitest run",
     "db:local": "tsx scripts/rebuild-db.ts",
     "worker": "tsx --env-file-if-exists=.env.local scripts/worker.ts",
-    "pipeline": "tsx --env-file-if-exists=.env.local scripts/pipeline.ts"
+    "pipeline": "tsx --env-file-if-exists=.env.local scripts/pipeline.ts",
+    "call:sim": "tsx --env-file-if-exists=.env.local scripts/call-sim.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.8.0",

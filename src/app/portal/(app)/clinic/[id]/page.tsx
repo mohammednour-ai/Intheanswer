@@ -9,6 +9,9 @@ import { renderLiveReviewTable } from "@/lib/reviews/liveTable";
 import { levelLabel } from "@/lib/reviews/thresholds";
 import { SITE_CHECK_LABELS, A11Y_LABEL } from "@/lib/sitetest/types";
 import type { Evidence } from "@/lib/pipeline/audit/types";
+import { scheduleCallAction } from "../../calls/actions";
+import { callsForClinic } from "@/lib/calls/queries";
+import { OWNER_SOURCES } from "@/lib/calls/request";
 
 async function createConnectLink(clinicId: string) {
   "use server";
@@ -111,6 +114,9 @@ export default async function ClinicView(props: PageProps<"/portal/clinic/[id]">
     );
   }
 
+  const recentCalls = await callsForClinic(id);
+  const callMsg = typeof sp.call === "string" ? sp.call.slice(0, 300) : null;
+
   return (
     <article className="stack">
       <h1 style={{ marginBottom: 0 }}>{c.display as string}</h1>
@@ -121,6 +127,45 @@ export default async function ClinicView(props: PageProps<"/portal/clinic/[id]">
         <Link className="btn" href={`/portal/pages`}>Pages</Link>
       </nav>
       {body}
+      <section className="card stack" aria-labelledby="phone-h">
+        <h2 id="phone-h" style={{ fontSize: "1.1rem", margin: 0 }}>Phone call from the assistant</h2>
+        {callMsg ? <p className="pill pill-blue" role="status">{callMsg}</p> : null}
+        {recentCalls.length ? (
+          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+            {recentCalls.map((k) => (
+              <li key={k.id}>
+                <Link href={`/portal/calls#call-${k.id}`}>{new Date(k.created_at).toLocaleDateString("en-CA")}</Link>: {k.status.replaceAll("_", " ")}
+                {k.outcome ? `, ${k.outcome.replaceAll("_", " ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <details>
+          <summary style={{ cursor: "pointer", fontWeight: 600, minHeight: 44, display: "flex", alignItems: "center" }}>This clinic asked to be called</summary>
+          <p className="small muted">
+            Only for a clinic that asked for a call: the assistant never calls a clinic that did not. What you enter here is kept as the
+            record of that request.
+          </p>
+          <form action={scheduleCallAction.bind(null, id)} className="stack">
+            <div className="row">
+              <div><label htmlFor="call-phone">Number to call</label><input id="call-phone" name="phone" type="tel" required maxLength={24} /></div>
+              <div><label htmlFor="call-name">Ask for (optional)</label><input id="call-name" name="name" type="text" maxLength={80} /></div>
+              <div>
+                <label htmlFor="call-source">How they asked</label>
+                <select id="call-source" name="source" required defaultValue="">
+                  <option value="" disabled>Choose</option>
+                  {Object.entries(OWNER_SOURCES).map(([k, v]) => <option key={k} value={k}>{v.charAt(0).toUpperCase() + v.slice(1)}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label htmlFor="call-note">What they said, and when</label>
+              <input id="call-note" name="note" type="text" required minLength={5} maxLength={500} placeholder="Reply of 12 November: please call after 2 pm" />
+            </div>
+            <button className="btn btn-primary">Queue the call</button>
+          </form>
+        </details>
+      </section>
     </article>
   );
 }

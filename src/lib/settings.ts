@@ -32,6 +32,10 @@ export interface AppSettings {
   crawl_page_cap: number;
   api_cache_days: number;
   discovery_targets_per_day: number;
+  calls_enabled: boolean;
+  calls_daily_cap: number;
+  call_max_minutes: number;
+  call_requests_per_report_per_day: number;
 }
 
 export async function getSettings(): Promise<AppSettings> {

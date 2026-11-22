@@ -5,6 +5,8 @@ import { sha256 } from "@/lib/tokens";
 import { LIVE_REVIEWS_MARKER, renderLiveReviewTable } from "@/lib/reviews/liveTable";
 
 import { isAutomatedFetch } from "@/lib/site/viewers";
+import { callsOffered } from "@/lib/calls/request";
+import { callLinkHtml } from "@/lib/calls/reportLink";
 
 /**
  * Private report page at an unguessable URL. A view is counted when a person
@@ -16,8 +18,8 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
   const { token } = await ctx.params;
   if (!/^[A-Za-z0-9_-]{16,64}$/.test(token)) return new Response("Not found", { status: 404 });
   const sql = db();
-  const [r] = await sql<{ id: string; html: string; data: { verified?: boolean; rows?: { namedInstead: string[] }[]; clinic?: { name: string } }; superseded: boolean; clinic_id: string | null; place_id: string | null; city_id: number | null }[]>`
-    select r.id, r.html, r.data, r.superseded, r.clinic_id, c.place_id, c.city_id
+  const [r] = await sql<{ id: string; html: string; data: { verified?: boolean; rows?: { namedInstead: string[] }[]; clinic?: { name: string } }; superseded: boolean; clinic_id: string | null; place_id: string | null; city_id: number | null; kind: string; clinic_status: string | null }[]>`
+    select r.id, r.html, r.data, r.superseded, r.clinic_id, c.place_id, c.city_id, r.kind::text as kind, c.status::text as clinic_status
     from reports r left join clinics c on c.id = r.clinic_id where r.token=${token}`;
   if (!r) return new Response("Not found", { status: 404 });
   // The owner is recognised with or without ?preview=owner (a signed-in owner
@@ -60,6 +62,12 @@ export async function GET(req: NextRequest, ctx: RouteContext<"/r/[token]">) {
       }).catch(() => "");
     }
     html = html.replace(LIVE_REVIEWS_MARKER, table);
+  }
+  // The offer to have the report explained by phone: added when the page is served (never to the
+  // stored report or its PDF), and only while calls are on and the clinic may be contacted.
+  if (r.clinic_id && r.data?.verified !== false && ["teaser", "monthly", "retest", "full"].includes(r.kind)
+      && r.clinic_status !== "do_not_contact" && r.clinic_status !== "suppressed" && (await callsOffered().catch(() => false))) {
+    html = html.replace(/<footer\b/, `${callLinkHtml(token)}<footer`);
   }
   return new Response(html, {
     headers: {

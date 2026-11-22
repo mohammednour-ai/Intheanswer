@@ -245,17 +245,30 @@ export async function structured<S extends z.ZodType>(opts: {
   schema: S;
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
   maxTokens?: number;
+  /** Another model than CLAUDE_MODEL (the live phone conversation can run on a faster one). */
+  model?: string;
+  /** Give up after this long, and how often to retry: for a caller waiting on the line. */
+  timeoutMs?: number;
+  maxRetries?: number;
+  /** Mark the system prompt cacheable: worth it when the same prompt is sent every few seconds. */
+  cacheSystem?: boolean;
 }): Promise<Structured<z.infer<S>>> {
-  const model = env().CLAUDE_MODEL;
+  const model = opts.model ?? env().CLAUDE_MODEL;
   const effort = opts.effort ?? "medium";
   return withRecording(`claude-${opts.purpose}`, { model, effort, system: opts.system, user: opts.user }, async () => {
-    const res = await anthropic().messages.parse({
-      model,
-      max_tokens: opts.maxTokens ?? 16000,
-      system: opts.system,
-      output_config: { effort, format: zodOutputFormat(opts.schema) },
-      messages: [{ role: "user", content: opts.user }],
-    });
+    const res = await anthropic().messages.parse(
+      {
+        model,
+        max_tokens: opts.maxTokens ?? 16000,
+        system: opts.cacheSystem ? [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }] : opts.system,
+        output_config: { effort, format: zodOutputFormat(opts.schema) },
+        messages: [{ role: "user", content: opts.user }],
+      },
+      {
+        ...(opts.timeoutMs !== undefined ? { timeout: opts.timeoutMs } : {}),
+        ...(opts.maxRetries !== undefined ? { maxRetries: opts.maxRetries } : {}),
+      },
+    );
     const usage = res.usage as unknown as UsageLike;
     const spend: CallSpend = { usage, costUsd: costUsd(res.model, usage), servedModel: res.model };
     if (res.stop_reason === "refusal") throw new ClaudeRefusalError(`refused during ${opts.purpose}`, spend);

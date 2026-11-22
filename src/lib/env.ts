@@ -64,6 +64,22 @@ const schema = z.object({
   STRIPE_PRICE_REPORTS_FIRST: z.string().optional(),   // 100 CAD one time, added to the first month (150 in total)
   STRIPE_TAX_RATE_ID: z.string().optional(), // HST tax rate (txr_...), added to every checkout when set
 
+  // Phone agent (Twilio Programmable Voice). Calls stay off until all three are set
+  // and the owner turns calls on in the portal.
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),   // REST calls, and the signature check on every webhook
+  TWILIO_PHONE_NUMBER: z.string().optional(), // our number, E.164 (+1705...): caller ID, and the number clinics call
+  // Any Twilio <Say> voice. Twilio has no Canadian English voice (checked 2026-11-22: its English voices are
+  // US, UK, Australian, Indian, Irish, NZ, South African), so the default is a young female US English one,
+  // the nearest accent. Other female ones: Polly.Joanna-Generative, Polly.Ruth-Generative, Google.en-US-Chirp3-HD-Aoede.
+  VOICE_TTS_VOICE: z.string().default("Polly.Danielle-Generative"),
+  VOICE_LANGUAGE: z.string().default("en-US"),                    // speech recognition and <Say> language (en-CA is not listed by Twilio)
+  // Model for the live conversation. Unset: claude-haiku-5-5, chosen by the owner for short pauses between
+  // turns. The after-call check of what was said stays on CLAUDE_MODEL.
+  VOICE_MODEL: z.string().optional(),
+  // Estimate only (voice minutes + speech recognition + speech synthesis), so calls count toward the daily spend cap.
+  VOICE_EST_USD_PER_MIN: z.coerce.number().min(0).max(5).default(0.1),
+
   // Signing secret for unsubscribe links, report tokens, cron calls.
   APP_SECRET: z.string().default(DEV_APP_SECRET),
   CRON_SECRET: z.string().optional(),

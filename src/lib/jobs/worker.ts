@@ -18,6 +18,7 @@ export const CLAUDE_JOBS = new Set([
   "review_analysis",
   "site_test",
   "propose_pages",
+  "review_call",
 ]);
 
 /** Jobs that are part of the outreach pipeline and stop on the kill switch. */

@@ -17,6 +17,11 @@ import {
 import type { DnsCheck } from "@/lib/sending/dns";
 import { ONTARIO_MUNICIPALITIES, cityKey } from "@/lib/site/ontarioCities";
 import { setCityActiveAction, addCitiesAction } from "./actions";
+import { setCallsEnabledAction, saveCallSettingsAction } from "../calls/actions";
+import { callsReady } from "@/lib/calls/rules";
+import { callingHours } from "@/lib/calls/request";
+import { displayPhone } from "@/lib/calls/phone";
+import { env } from "@/lib/env";
 
 export default async function SettingsPage(props: PageProps<"/portal/settings">) {
   await requireOwner();
@@ -49,6 +54,9 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
   const offCities = allCities.filter((c) => !c.active && c.requests === 0);
   const sectorCount = sectors.filter((x) => x.active).length;
   const capToday = warmupCapForDate(s, localDate(new Date()));
+  const callSetup = callsReady();
+  const appUrl = env().APP_URL.replace(/\/$/, "");
+  const ourNumber = env().TWILIO_PHONE_NUMBER;
 
   return (
     <div className="stack">
@@ -192,6 +200,47 @@ export default async function SettingsPage(props: PageProps<"/portal/settings">)
             </div>
           </div>
           <button className="btn btn-primary">Save settings</button>
+        </form>
+      </section>
+
+      <section className="card stack" aria-labelledby="calls-h">
+        <h2 id="calls-h">Phone calls</h2>
+        <p className="small muted">
+          The assistant explains a clinic&apos;s report by phone and answers questions about the paid options. It only calls a number a
+          clinic asked us to call (on its report page, or a request you record on the clinic&apos;s page), and it answers calls to our
+          number. There is no cold calling: a sales call with a synthesized voice needs the express consent of the person called (CRTC
+          Unsolicited Telecommunications Rules), also when a business is called.
+        </p>
+        <p>
+          Calls are <strong>{s.calls_enabled ? "on" : "off"}</strong>.{" "}
+          {callSetup.ok ? "Set up: yes." : `Not set up yet: ${callSetup.missing.join("; ")}.`}{" "}
+          {dry ? "Dry run: no call is placed; calls to our number are still answered once calls are on." : ""}
+        </p>
+        <form action={setCallsEnabledAction.bind(null, !s.calls_enabled)}>
+          <button className={s.calls_enabled ? "btn" : "btn btn-primary"}>{s.calls_enabled ? "Turn calls off" : "Turn calls on"}</button>
+        </form>
+        <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+          <li>Calling hours: {callingHours(s)} (the sending hours above). Two attempts at most per request.</li>
+          <li>Our number: {ourNumber ? displayPhone(ourNumber) : "not set (TWILIO_PHONE_NUMBER)"}</li>
+          <li>In Twilio, on that number, set &ldquo;A call comes in&rdquo; to POST <code>{appUrl}/api/voice/incoming</code></li>
+          <li>and &ldquo;Call status changes&rdquo; to POST <code>{appUrl}/api/voice/incoming/status</code></li>
+        </ul>
+        <form action={saveCallSettingsAction} className="stack">
+          <div className="row">
+            <div>
+              <label htmlFor="ccap">Calls placed per day, at most</label>
+              <input id="ccap" name="calls_daily_cap" type="number" min={0} max={200} defaultValue={s.calls_daily_cap} />
+            </div>
+            <div>
+              <label htmlFor="cmax">Longest call (minutes)</label>
+              <input id="cmax" name="call_max_minutes" type="number" min={3} max={30} defaultValue={s.call_max_minutes} />
+            </div>
+            <div>
+              <label htmlFor="creq">Call requests per report per day</label>
+              <input id="creq" name="call_requests_per_report_per_day" type="number" min={1} max={10} defaultValue={s.call_requests_per_report_per_day} />
+            </div>
+          </div>
+          <button className="btn">Save call settings</button>
         </form>
       </section>
 

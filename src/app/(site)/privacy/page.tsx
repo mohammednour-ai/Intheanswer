@@ -32,6 +32,9 @@ export default function Privacy() {
       <h2>Why we email clinics</h2>
       <p>We send a clinic its report because the address is published by the clinic for business contact and the report is about that clinic&apos;s business. We write at most twice unless you reply. Every email names the sender, gives a mailing address and has an unsubscribe link that works at once without a login. We do not write to clinics whose site says not to send solicitations.</p>
 
+      <h2>Phone calls from our AI assistant</h2>
+      <p>We phone a clinic only when someone at the clinic asks us to, on the page its report links to or by writing to us. The call is made by In The Answer Copilot, an AI assistant that says so at the start of every call. We keep the number, when and how the call was asked for, and a written transcript of the call so that {o.name} can review it; we do not keep an audio recording. Transcripts are deleted after 180 days. Tell the assistant &ldquo;do not call&rdquo; and the call ends and that number is never called again. Please do not share patient information on a call.</p>
+
       <h2>How to stop emails or remove information</h2>
       <p>Use the link in any email or the <Link href="/unsubscribe">unsubscribe page</Link>. To have your clinic&apos;s report and stored pages deleted, email <a href={`mailto:${o.email}`}>{o.email}</a>. We keep only the address on a do-not-contact list so we do not write again.</p>
 

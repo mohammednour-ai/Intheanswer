@@ -17,6 +17,7 @@ been exercised through fakes and a local Postgres.
 | 5 | Stripe checkout and webhook, full report, intake form | done; needs Stripe keys and prices |
 | 6 | Scheduled discovery, monthly retests, retest after purchase, alerts, digest, retention | done |
 | + | Review analysis, full site test, answer pages | done |
+| + | Phone agent: explains a report by phone, on request only | done; needs Twilio keys, a number and the migration |
 
 ## Local development
 
@@ -179,6 +180,54 @@ covers every paid API (Claude and Places), not only Claude.
 - **Follow-up.** One reminder, once, `follow_up_business_days` after a first email with no reply. It is
   reviewed like any other item and counts toward the two-contact limit.
 
+## Phone agent
+
+In The Answer Copilot can explain a clinic's report by phone and answer questions about the paid options
+(`src/lib/calls`). It is off until Twilio is configured and the owner turns it on (Portal > Settings >
+Phone calls), and it has not yet been run against real Twilio: only through fakes and the simulator.
+
+- **Consent only, no cold calls.** The voice is synthesized. The CRTC's Unsolicited Telecommunications
+  Rules allow a solicitation call that conveys a synthesized voice only with the express consent of the
+  person called, and calls to businesses are exempt from the do-not-call list but not from that rule
+  (the CRTC is reviewing how the rule applies to AI voices: notice 2026-132). So every outbound call
+  needs a `call_consents` row, and there is no other way to queue one:
+  1. the clinic asks on `/call/<report token>`, linked from its report page ("Have it call me"): it
+     types the number and ticks the consent wording, which is stored with the request;
+  2. the owner records that a clinic asked another way (Portal > clinic > "This clinic asked to be
+     called"), with a note of what they said.
+  Do not add a cold-calling mode without legal advice.
+- **Calls to our number** are answered by the same agent (`POST /api/voice/incoming`). A caller is
+  matched by a number that asked for a call before, by the number the clinic publishes on its own site,
+  or by the six-digit report code shown on the `/call` page; otherwise it can only explain the service.
+- **What it may say.** Each call gets a brief built from stored data only (`brief.ts`): the report as
+  saved after the verification gate, the published prices, the owner's approved answers. The model
+  (`agent.ts`) is told to state nothing else and to say it is an AI. Every line then passes the
+  spoken-word check (`guard.ts`) before the caller hears it: the email gate's wording rules, only the
+  published prices, no review numbers, never passing for a person. A line that fails is replaced by a
+  fixed one and kept in the transcript; two in one call end the call and hand over to the owner.
+- **Actions.** The model picks one per turn; the engine carries it out: hand over to the owner (task +
+  alert), email the report and checkout links (an `interested_reply` message, through the usual review
+  and sending rules), do not call, do not contact at all, wrong number, voicemail (hang up, no message).
+  "Stop calling" is also recognised without the model and acted on at once.
+- **Rules at dial time** (`rules.ts`): recorded consent no older than 14 days, number and clinic not
+  suppressed, calls on, kill switch off, business hours (the sending window), daily call cap, daily spend
+  cap, two attempts at most. An answering machine is hung up on without a message.
+- **After the call** (`review_call`): a summary for the owner, and a strict reading of every sentence the
+  agent spoke against its brief; anything unsupported becomes an owner task. Transcripts (text only, no
+  audio) are deleted after 180 days. Portal > Calls shows calls, transcripts and the do-not-call list.
+- **Dry run.** No call is placed (recorded as a dry-run call, like email). Calls *to* our number are
+  still answered once calls are on, so the owner can test by phoning it.
+- **Try it without a phone:** `npm run call:sim` (sample report), `npm run call:sim -- <report token>`,
+  or `-- --general`. Same brief, model call and wording check; nothing is stored or sent.
+- **How a call runs.** Twilio speaks each line (`<Say>` inside `<Gather input="speech dtmf">`) and posts
+  what it heard to `/api/voice/turn/<call token>`; one model call per turn, cut off at 10 seconds. This
+  works on serverless (no WebSocket) at the cost of a pause before each reply. The live conversation
+  runs on `claude-haiku-5-5` (`VOICE_MODEL` changes it) to keep that pause short; the after-call check
+  runs on `CLAUDE_MODEL`. Every webhook checks the Twilio signature against `APP_URL`.
+- **Voice.** `VOICE_TTS_VOICE`, default `Polly.Danielle-Generative` (female, US English). Twilio has no
+  Canadian English voice, and Canadian English is not in its listed speech-recognition languages, so
+  both stay `en-US`.
+
 ## Payments and delivery (phase 5)
 
 - Teaser buttons go to `/buy/<report token>/report` and `/buy/<report token>/monthly`. The Stripe session
@@ -230,6 +279,13 @@ Everything stays a dry run until all of this is true. Do it in this order.
    `STRIPE_TAX_RATE_ID` for HST. Turn on the receipts Stripe emails so renewals get one.
 6. **Owner details**: the real name, registered business name, mailing address, phone and minimum term.
    Live sending is refused while any is a placeholder.
+   **Phone agent (optional)**: apply `supabase/migrations/20261122000001_calls.sql`; buy a Canadian Twilio
+   number; set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_PHONE_NUMBER`; on the number set "A call
+   comes in" to POST `{APP_URL}/api/voice/incoming` and "Call status changes" to POST
+   `{APP_URL}/api/voice/incoming/status`; try `npm run call:sim`, then Portal > Settings > Phone calls >
+   Turn calls on and phone the number yourself. Before the first real call, check the CRTC's current
+   telemarketing rules (or ask a lawyer) for anything else that applies to you, such as registering
+   with the National DNCL operator: this code enforces consent, hours and do-not-call, not registration.
 7. **Switch on**: `DRY_RUN=0` in the environment, then Portal > Settings > go live. Keep every message type
    on REVIEW at first; the warm-up starts at 10 a day.
 
