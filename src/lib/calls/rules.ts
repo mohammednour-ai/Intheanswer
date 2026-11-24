@@ -59,17 +59,30 @@ export async function suppressPhone(phone: string, reason: string, source: strin
  * gets what it paid for), as with an email unsubscribe.
  */
 export async function stopAllContact(phone: string, clinicId: string | null): Promise<void> {
-  const sql = db();
   await suppressPhone(phone, "asked on a call not to be contacted", "call", clinicId);
-  if (!clinicId) return;
+  if (clinicId) await stopClinic(clinicId, "asked on a call not to be contacted", "call");
+}
+
+/**
+ * Close a clinic to all outreach: every address we hold for it is suppressed, unsent emails and
+ * letters and queued calls are cancelled, its call consents withdrawn. Used for "do not contact us"
+ * on a call and on the stop page printed on a letter. Idempotent.
+ */
+export async function stopClinic(clinicId: string, reason: string, source: string): Promise<void> {
+  const sql = db();
   const emails = await sql<{ email: string }[]>`
     select lower(email) as email from contacts where clinic_id=${clinicId}
     union select lower(to_email) from messages where clinic_id=${clinicId} and type in ('first_email', 'follow_up', 'self_serve_teaser')`;
-  for (const e of emails) await addSuppression("address", e.email, "asked on a call not to be contacted", "call");
+  for (const e of emails) await addSuppression("address", e.email, reason, source);
   await sql`update messages set status='cancelled', updated_at=now()
             where clinic_id=${clinicId} and type in ('first_email', 'follow_up', 'interested_reply', 'question_answer')
               and status in ('draft', 'pending_review', 'held', 'approved', 'scheduled')`;
-  await sql`update clinics set status='suppressed', status_reason='asked on a call not to be contacted', updated_at=now()
+  await sql`update letters set status='cancelled', reject_reason=${reason}, updated_at=now()
+            where clinic_id=${clinicId} and status in ('review', 'held', 'approved')`;
+  await sql`update calls set status='cancelled', last_error=${"clinic stopped contact: " + reason}, updated_at=now()
+            where clinic_id=${clinicId} and status='queued'`;
+  await sql`update call_consents set revoked_at=now(), revoked_reason=${reason} where clinic_id=${clinicId} and revoked_at is null`;
+  await sql`update clinics set status='suppressed', status_reason=${reason}, updated_at=now()
             where id=${clinicId} and status not in ('customer', 'do_not_contact', 'suppressed')`;
 }
 

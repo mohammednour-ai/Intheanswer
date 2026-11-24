@@ -22,7 +22,7 @@ export const CLAUDE_JOBS = new Set([
 ]);
 
 /** Jobs that are part of the outreach pipeline and stop on the kill switch. */
-const PIPELINE_JOBS = new Set(["discover", "find_contact", ...CLAUDE_JOBS]);
+const PIPELINE_JOBS = new Set(["discover", "find_contact", "send_letter", ...CLAUDE_JOBS]);
 
 /** Today's spend across all paid APIs (Claude, Places, ...). */
 export const spendToday = () => claudeSpendToday();

@@ -64,6 +64,11 @@ const schema = z.object({
   STRIPE_COUPON_REPORT_CREDIT: z.string().optional(),     // coupon: the full report's price off, once (the 30-day report credit)
   STRIPE_TAX_RATE_ID: z.string().optional(), // HST tax rate (txr_...), added to every checkout when set
 
+  // Letters by post (PostGrid Print & Mail). Without a key, letters are prepared and previewed but
+  // nothing can be posted. A test key never prints; a live key prints and posts.
+  POSTGRID_API_KEY: z.string().optional(),
+  POSTGRID_WEBHOOK_SECRET: z.string().optional(), // the secret of the PostGrid webhook to /api/webhooks/postgrid
+
   // Phone agent (Twilio Programmable Voice). Calls stay off until all three are set
   // and the owner turns calls on in the portal.
   TWILIO_ACCOUNT_SID: z.string().optional(),

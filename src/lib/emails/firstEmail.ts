@@ -49,17 +49,27 @@ export function namedInsteadLine(d: TeaserData, n = 3): string {
   return tiedAtCut ? ` The clinics it named included ${names}.` : ` The clinics it named most often were ${names}.`;
 }
 
-/** `switches`: what the owner has switched on (offerSwitches()); the launch setting when left out. */
-export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUrl: string; reportUrl: string; switches?: Switches }): Draft {
-  const claims: Claim[] = [];
+/**
+ * "On <date> we asked <assistant>, an AI assistant, <n> questions a patient in <city> might ask, such as
+ * "<question>" It recommended <clinic> in <r> of them. The clinics it named ..." — the result as the
+ * first email states it (the printed letter repeats it word for word).
+ */
+export function resultParagraph(d: TeaserData): { text: string; whatCameBack: string; namedLine: string } {
   const example = d.rows.find((r) => r.status !== "recommended") ?? d.rows[0];
   const { recommended: r, total: t } = d.score;
-
   const whatCameBack =
     r === 0
       ? `It did not recommend ${d.clinic.name} in any of them.`
       : `It recommended ${d.clinic.name} in ${r} of them.`;
   const namedLine = namedInsteadLine(d);
+  const text = `On ${d.test.date} we asked ${d.test.assistant}, an AI assistant, ${t} questions a patient in ${d.clinic.city} might ask, such as "${example.question}" ${whatCameBack}${namedLine}`;
+  return { text, whatCameBack, namedLine };
+}
+
+/** `switches`: what the owner has switched on (offerSwitches()); the launch setting when left out. */
+export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUrl: string; reportUrl: string; switches?: Switches }): Draft {
+  const claims: Claim[] = [];
+  const { text: result, whatCameBack, namedLine } = resultParagraph(d);
   claims.push({
     id: "email-result",
     where: "email",
@@ -73,7 +83,7 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
   const body = [
     `Hello ${d.clinic.name} team,`,
     ``,
-    `On ${d.test.date} we asked ${d.test.assistant}, an AI assistant, ${t} questions a patient in ${d.clinic.city} might ask, such as "${example.question}" ${whatCameBack}${namedLine}`,
+    result,
     ``,
     `Two things we noticed on ${d.clinic.domain}:`,
     ...two.map((f, i) => `${i + 1}. ${f.text}`),

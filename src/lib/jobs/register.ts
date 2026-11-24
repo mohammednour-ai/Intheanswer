@@ -15,3 +15,4 @@ import "../sending/events";
 import "../replies/ingest";
 import "../calls/engine"; // phone agent: placing calls, after-call review, housekeeping
 import "../schedule"; // scheduler tasks, retests, monthly reports, owner alerts
+import "../letters/jobs"; // letters by post: daily preparation, posting approved letters

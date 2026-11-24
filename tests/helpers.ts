@@ -7,12 +7,14 @@ export async function resetData() {
             suppressions, inbound_messages, clinics, contacts, page_cache, test_runs, test_answers,
             clinic_test_results, audits, audit_checks, scores, reports, report_views, stripe_events, orders,
             subscriptions, intake_forms, owner_tasks, self_serve_requests, owner_notifications, unsubscribe_attempts, api_cache,
-            call_turns, calls, call_consents, call_suppressions cascade`;
+            call_turns, calls, call_consents, call_suppressions, letters cascade`;
   await sql`update app_settings set owner_user_id=null, kill_switch=false, auto_paused=false, auto_pause_reason=null,
             auto_pause_cleared_at=null, dry_run=true, live_enabled=false, warmup_start_date=null, daily_cap_override=null,
             send_window_start='09:30', send_window_end='16:30', claude_daily_spend_cap_usd=25,
             pipeline_paused_for_spend=false, dns_verified=false,
-            calls_enabled=false, calls_daily_cap=20, call_max_minutes=10, call_requests_per_report_per_day=2, call_voice=null where id`;
+            calls_enabled=false, calls_daily_cap=20, call_max_minutes=10, call_requests_per_report_per_day=2, call_voice=null,
+            letters_enabled=false, letters_live=false, letter_after_days=14, letters_per_day=10, letter_mailing_class='ca_post_lettermail',
+            letter_cost_usd=2.22, letters_monthly_budget_usd=100 where id`;
   await sql`update message_type_modes set mode='REVIEW', review_first_n=10, auto_since=null, auto_created_count=0`;
 }
 

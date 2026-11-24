@@ -44,6 +44,14 @@ export interface AppSettings {
    */
   call_relay?: "off" | "listed" | "all" | null;
   call_relay_numbers?: string[] | null;
+  /** Letters by post (src/lib/letters). Missing on a database without the migration: read as off. */
+  letters_enabled?: boolean | null;
+  letters_live?: boolean | null;
+  letter_after_days?: number | null;
+  letters_per_day?: number | null;
+  letter_mailing_class?: string | null;
+  letter_cost_usd?: number | string | null;
+  letters_monthly_budget_usd?: number | string | null;
   /** Promise and pillar keys from src/lib/offer.ts that are switched on. Read them through offerSwitches(). */
   offer_promises?: string[] | null;
   offer_pillars?: string[] | null;
