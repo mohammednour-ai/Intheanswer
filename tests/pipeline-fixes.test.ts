@@ -330,6 +330,20 @@ describe("contact step", () => {
     expect(await sql`select email from contacts where clinic_id=${clinicId} and is_primary`).toEqual([{ email: "owner@maplegrove.example" }]);
   });
 
+  it("a physiotherapy clinic Google filed as a medspa is set aside before anything is spent on it", async () => {
+    const sql = db();
+    const [medspa] = await sql<{ id: number }[]>`select id from sectors where slug='medspa'`;
+    const clinicId = await makeClinic({ website: "https://maplegrove.example/", domain: "maplegrove.example", status: "discovered", source: "places", sector_id: medspa.id });
+    const physio = HOME.replace("<footer>", `<section>${"<p>Physiotherapy, chiropractic care, registered massage therapy and acupuncture for injury recovery and pelvic floor health.</p>".repeat(4)}</section><footer>`);
+    mocks.readSite.mockResolvedValue(siteFrom({ "https://maplegrove.example/": physio }));
+    const ctx = fakeCtx("find_contact", { clinicId });
+    const out = (await handleFindContact(ctx)) as { excluded?: string };
+    expect(out.excluded).toMatch(/^not a medspa: its site is mainly about other care: .*physiotherapy/);
+    const [c] = await sql<{ status: string; status_reason: string }[]>`select status::text, status_reason from clinics where id=${clinicId}`;
+    expect(c).toEqual({ status: "excluded", status_reason: out.excluded });
+    expect(ctx.enqueued).toEqual([]); // no test, audit or site test
+  });
+
   it("self-serve: a no-solicitation notice on the site is honoured like on the normal path", async () => {
     const sql = db();
     const clinicId = await makeClinic({ website: "https://maplegrove.example/", domain: "maplegrove.example", status: "discovered", source: "self_serve" });

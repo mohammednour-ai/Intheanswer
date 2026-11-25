@@ -5,6 +5,7 @@ import { register } from "../jobs/handlers";
 import { readSite, type SiteRead } from "../site/crawl";
 import { addSuppression, isSuppressed } from "../sending/suppression";
 import { currentRunLabel } from "./runs";
+import { sectorFit, pageText } from "./sectorFit";
 
 /**
  * Step 2: find a contact address. Rules:
@@ -180,8 +181,9 @@ export async function acceptHeldSelfServe(clinicId: string): Promise<{ ok: boole
 async function handleFindContact(ctx: JobContext) {
   const { clinicId } = ctx.job.payload as { clinicId: string };
   const sql = db();
-  const [clinic] = await sql<{ id: string; website: string | null; sector_id: number; city_id: number; status: string; source: string }[]>`
-    select id, website, sector_id, city_id, status::text, source from clinics where id = ${clinicId}`;
+  const [clinic] = await sql<{ id: string; website: string | null; sector_id: number; city_id: number; status: string; source: string; slug: string }[]>`
+    select c.id, c.website, c.sector_id, c.city_id, c.status::text, c.source, coalesce(s.slug, '') as slug
+    from clinics c left join sectors s on s.id = c.sector_id where c.id = ${clinicId}`;
   if (!clinic) throw new PermanentJobError("clinic not found");
   if (!clinic.website) {
     await sql`update clinics set status='excluded', status_reason='no website of its own', updated_at=now() where id=${clinicId}`;
@@ -209,6 +211,12 @@ async function handleFindContact(ctx: JobContext) {
     clinicId,
     r.candidates.map((c) => ({ email: c.email, sourceUrl: c.sourceUrl, snippet: c.snippet, onOwnDomain: c.onOwnDomain, primary: c === r.primary })),
   );
+  // A clinic Google filed under the wrong sector is set aside before anything is spent on it.
+  const fit = sectorFit(clinic.slug, site.pages.map(pageText));
+  if (!fit.ok) {
+    await sql`update clinics set status='excluded', status_reason=${fit.reason}, updated_at=now() where id=${clinicId}`;
+    return { excluded: fit.reason };
+  }
   if (!r.primary) {
     await sql`update clinics set status='no_contact', status_reason='no email address published on its own site', updated_at=now() where id=${clinicId}`;
     return { contact: null };

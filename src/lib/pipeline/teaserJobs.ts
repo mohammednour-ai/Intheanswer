@@ -14,6 +14,7 @@ import { fillOffer, type OfferContext } from "../reports/offerSection";
 import { offerContextFor } from "../reports/offerContext";
 import { offerSwitches } from "../offerSwitches";
 import { verifyTeaser, scanLanguage, scanExclusionsFor, type Flag } from "./verify";
+import { sectorFitForClinic } from "./sectorFit";
 import { decideReview } from "../sending/modes";
 import { sendJobPriority } from "../sending/priority";
 import { effectiveDryRun, getSettings } from "../settings";
@@ -115,6 +116,11 @@ async function handleVerifyTeaser(ctx: JobContext) {
   const flags: Flag[] = v.flags.filter((f) => f.code !== "email_finding_removed");
   for (const f of scanLanguage(draft.subject + "\n" + draft.bodyText.split("\n--\n")[0], "email (rebuilt)", v.exclude)) {
     if (!flags.some((x) => x.code === f.code)) flags.push(f);
+  }
+  // A cold email only to a clinic that really is of its sector (a clinic that asked for its report is not checked).
+  if (msg.type === "first_email") {
+    const fit = await sectorFitForClinic(rep.clinic_id);
+    if (fit && !fit.ok) flags.push({ code: "sector_fit", message: `category check: ${fit.reason}`, severity: "block" });
   }
   const blocked = flags.some((f) => f.severity === "block");
 
