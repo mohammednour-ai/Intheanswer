@@ -49,6 +49,8 @@ export interface Letter {
   paragraphs: string[];
   findingsIntro: string;
   findings: string[];
+  /** What the report adds: "every question, who was named, and a third finding" only when it has a third. */
+  reportHas: string;
   qrUrl: string;
   typedUrl: string;
   stopUrl: string;
@@ -82,6 +84,7 @@ export function buildLetter(i: LetterInput): Letter {
     paragraphs,
     findingsIntro: `Two things we noticed on ${d.clinic.domain}:`,
     findings: d.findings.slice(0, 2).map((f) => f.text),
+    reportHas: d.findings.length >= 3 ? "every question, who was named, and a third finding" : "every question and who was named",
     ...u,
     phoneLine,
     closing: "The report is free and yours to keep. It also shows what we offer, if you would like the gaps fixed.",
@@ -159,7 +162,7 @@ export async function renderLetterHtml(l: Letter, date: string): Promise<string>
     <ol>${l.findings.map((f) => `<li>${esc(f)}</li>`).join("")}</ol>
     <div class="cta">
       <div role="img" aria-label="QR code to your free report">${qr}</div>
-      <div><strong>Scan to open your free report: every question, who was named, and a third finding.</strong>
+      <div><strong>Scan to open your free report: ${l.reportHas}.</strong>
         <div>Or type</div><div class="url">${esc(l.typedUrl)}</div>
         ${l.phoneLine ? `<div>${esc(l.phoneLine)}</div>` : ""}</div>
     </div>

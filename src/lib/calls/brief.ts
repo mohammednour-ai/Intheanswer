@@ -129,7 +129,7 @@ function teaserLines(d: TeaserData): string[] {
     const fix = FIXES[f.checkKey];
     out.push(`Website finding ${i + 1}, ${f.title}: ${f.text}${fix ? ` What the full report gives for it: ${fix}` : ""}`);
   });
-  out.push(`The free report shows the three most concrete findings. In all we found ${d.findingsTotal} gaps on the ${d.pagesRead} pages we read on ${d.clinic.domain}; the full report covers every one with its fix.`);
+  out.push(`The free report shows the ${d.findings.length === 1 ? "one" : d.findings.length === 2 ? "two" : "three"} most concrete findings. In all we found ${d.findingsTotal} gaps on the ${d.pagesRead} pages we read on ${d.clinic.domain}; the full report covers every one with its fix.`);
   out.push(`Limits of the test: ${d.limits}`);
   return out;
 }

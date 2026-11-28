@@ -5,7 +5,7 @@ import type { JobContext } from "../jobs/queue";
 import { PermanentJobError } from "../jobs/queue";
 import { register } from "../jobs/handlers";
 import { randomToken, sha256 } from "../tokens";
-import { buildTeaserData } from "../reports/teaser";
+import { buildTeaserData, withShownCount } from "../reports/teaser";
 import { renderTeaser } from "../reports/renderTeaser";
 import { htmlToPdf } from "../reports/pdf";
 import { putFile } from "../storage";
@@ -207,7 +207,8 @@ export async function prepareTeaserRebuild(messageId: string, statuses: string[]
   if (!rep || !rep.data.verified) return { skipped: "report not verified" };
 
   const o = ownerDetails();
-  const data: TeaserData = { ...rep.data, owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email } };
+  // the current sender details, and the summary worded for the findings that survived (a report verified with two says "two")
+  const data: TeaserData = withShownCount({ ...rep.data, owner: { name: o.name, businessName: o.businessName, mailingAddress: o.mailingAddress, phone: o.phone, email: o.email } });
   const offer = await offerContextFor({ clinicId: msg.clinic_id, teaserToken: rep.token, findingsTotal: data.findingsTotal });
   const draft = buildFirstEmail(data, { toEmail: msg.to_email, sourceUrl: msg.contact_source_url ?? "", reportUrl: reportUrl(rep.token), switches: offer.switches });
   const [own] = msg.clinic_id
@@ -248,7 +249,7 @@ async function handleRefreshTeaser(ctx: JobContext) {
     ? "rebuilt, but: " + flags.filter((f) => f.severity === "block").map((f) => f.message).join("; ")
     : "rebuilt with the current wording and sender details: approve to send";
   await sql.begin(async (tx) => {
-    await tx`update reports set data=${tx.json({ ...rep.data, owner: data.owner } as never)}, html=${html},
+    await tx`update reports set data=${tx.json({ ...rep.data, owner: data.owner, summary: data.summary, claims: data.claims } as never)}, html=${html},
               pdf_path=${pdfRef}, pdf_bytes=${pdf.length} where id=${msg.report_id}`;
     await tx`update messages set status=${status}, subject=${draft.subject}, body_text=${draft.bodyText}, body_html=null,
               claims=${tx.json([...data.claims, ...draft.claims] as never)}, flags=${tx.json(flags as never)},

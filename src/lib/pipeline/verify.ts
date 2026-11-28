@@ -6,6 +6,7 @@ import { OWNER_PLACEHOLDER_RE } from "../env";
 import type { NamedClinic } from "./match";
 import type { Evidence } from "./audit/types";
 import type { Claim, TeaserData } from "../reports/types";
+import { MIN_FINDINGS, withShownCount } from "../reports/teaser";
 import type { Draft } from "../emails/firstEmail";
 
 /**
@@ -20,8 +21,8 @@ import type { Draft } from "../emails/firstEmail";
  *    evidence. Unsupported findings are removed; any other unsupported
  *    sentence holds the clinic.
  *
- * Hold when fewer than three findings survive, or anything not verified is
- * stated as fact.
+ * Hold when fewer than two findings survive (MIN_FINDINGS), or anything not
+ * verified is stated as fact.
  */
 
 export interface Flag {
@@ -284,13 +285,15 @@ export async function verifyTeaser(input: {
     flags.push({ code: "model_verification_not_run", message: "the model verification pass did not run", severity: "block" });
   }
 
-  // --- 5. three findings, language, identity -------------------------------------
+  // --- 5. two or three findings, language, identity --------------------------------
   if (data.findings.filter((f) => f.source === "site" || f.checkKey.startsWith("site:")).length > 1) {
     flags.push({ code: "too_many_site_findings", message: "the teaser may use at most one finding from the site test", severity: "block" });
   }
-  if (data.findings.length < 3) {
-    flags.push({ code: "fewer_than_three_findings", message: `only ${data.findings.length} finding(s) survived verification`, severity: "block" });
+  if (data.findings.length < MIN_FINDINGS) {
+    flags.push({ code: "too_few_findings", message: `only ${data.findings.length} finding(s) survived verification`, severity: "block" });
   }
+  // the summary says how many findings are shown: say it for the ones that survived
+  Object.assign(data, withShownCount(data));
   const teaserText = [data.summary.join(" "), ...data.findings.map((f) => f.text)].join("\n");
   // Names and quotes that come from stored data are not our wording: the
   // clinic's name, the clinics the answers named (already checked against the
@@ -353,7 +356,7 @@ async function claimsWithEvidence(data: TeaserData, draft: Draft): Promise<{ id:
     evidence:
       `[stored counts, computed from the database] ${data.claims.find((c) => c.id === "summary-1")?.evidence[0]?.label ?? `${data.pagesRead} pages`}. ` +
       `The audit and the site test read different numbers of pages; the sentence uses the larger. The gap count is the number of failed checks in both; ` +
-      `only the three most concrete are shown as findings, so fewer findings than gaps is expected:\n${data.findings.map((f) => "- " + f.text).join("\n")}`,
+      `only the most concrete (two or three) are shown as findings, so fewer findings than gaps is expected:\n${data.findings.map((f) => "- " + f.text).join("\n")}`,
   });
   for (const r of data.rows) {
     out.push({

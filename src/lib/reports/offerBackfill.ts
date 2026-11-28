@@ -212,7 +212,7 @@ async function backfillTeaserEmails(o: BackfillOptions): Promise<BackfillResult[
           select status::text, subject, body_text from messages where id=${msg.id} for update`;
         if (!cur || cur.status !== msg.status || cur.subject !== msg.subject || cur.body_text !== msg.body_text) return false;
         const pdfRef = await (o.put ?? putFile)(`reports/${rep.token}.pdf`, pdf, "application/pdf");
-        await tx`update reports set data=${tx.json({ ...rep.data, owner: r.data.owner } as never)}, html=${r.html},
+        await tx`update reports set data=${tx.json({ ...rep.data, owner: r.data.owner, summary: r.data.summary, claims: r.data.claims } as never)}, html=${r.html},
                   pdf_path=${pdfRef}, pdf_bytes=${pdf.length} where id=${msg.report_id}`;
         // the text, and what is stored with it: nothing that decides whether or when it is sent
         await tx`update messages set subject=${draft.subject}, body_text=${draft.bodyText}, body_html=null,

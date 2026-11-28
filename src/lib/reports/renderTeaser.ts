@@ -20,6 +20,12 @@ export function headline(d: TeaserData): string {
   return `Not named in any of the ${t} answers.`;
 }
 
+/** "Three things we found on your website", or "Two ..." when one did not survive verification. */
+export function findingsHeading(n: number): string {
+  const word = ["No", "One", "Two", "Three", "Four"][n] ?? String(n);
+  return `${word} ${n === 1 ? "thing" : "things"} we found on your website`;
+}
+
 /** Copilot byline, as on the design canvas: always says it is an AI system. */
 export function copilotByline(ownerName: string): string {
   return `<div class="byline">${copilotAvatarSvg({ size: 28, dot: false })}<div>Prepared by <strong>${COPILOT_NAME}</strong>, an AI system, for ${esc(ownerName)}, In The Answer. Every claim checked against stored evidence.</div></div>`;
@@ -150,7 +156,7 @@ export function renderTeaser(d: TeaserData): string {
 </div></section>
 
 <section class="rp-band" aria-labelledby="find-h"><div class="rp-wrap rp-stack">
-  <h2 id="find-h" class="rp-h2">Three things we found on your website</h2>
+  <h2 id="find-h" class="rp-h2">${findingsHeading(d.findings.length)}</h2>
   <ol class="rp-findings">${findings}</ol>
 </div></section>
 

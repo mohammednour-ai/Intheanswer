@@ -5,6 +5,7 @@ import "../pipeline/test";
 import "../pipeline/audit/run";
 import "../pipeline/score";
 import "../pipeline/teaserJobs";
+import "../pipeline/releaseShortTeasers"; // one-off: first emails held for two findings (owner approved 2026-11-28)
 import "../sitetest/run";
 import "../reviews/jobs";
 import "../pages/jobs";

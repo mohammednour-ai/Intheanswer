@@ -66,6 +66,14 @@ export function resultParagraph(d: TeaserData): { text: string; whatCameBack: st
   return { text, whatCameBack, namedLine };
 }
 
+/**
+ * What the report adds to the two findings the email states. A third finding is promised only
+ * when the report has one (a teaser with two findings left after verification has none).
+ */
+export function reportHasLine(findings: number): string {
+  return findings >= 3 ? "The free report has every question, who was named, and a third finding:" : "The free report has every question and who was named:";
+}
+
 /** `switches`: what the owner has switched on (offerSwitches()); the launch setting when left out. */
 export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUrl: string; reportUrl: string; switches?: Switches }): Draft {
   const claims: Claim[] = [];
@@ -88,7 +96,7 @@ export function buildFirstEmail(d: TeaserData, opts: { toEmail: string; sourceUr
     `Two things we noticed on ${d.clinic.domain}:`,
     ...two.map((f, i) => `${i + 1}. ${f.text}`),
     ``,
-    `The free report has every question, who was named, and a third finding:`,
+    reportHasLine(d.findings.length),
     opts.reportUrl,
     `(A PDF copy is attached.)`,
     ``,

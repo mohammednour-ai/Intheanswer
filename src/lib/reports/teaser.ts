@@ -21,6 +21,33 @@ export function plural(n: number, one: string, many: string) {
   return `${n} ${n === 1 ? one : many}`;
 }
 
+/** A report shows two or three findings: two when a third did not survive verification. */
+export const MIN_FINDINGS = 2;
+const NUMBER_WORD = ["no", "one", "two", "three", "four"];
+export const numberWord = (n: number) => NUMBER_WORD[n] ?? String(n);
+
+/** The sentence that ends the second summary line: how many findings the report shows. */
+export function shownLine(n: number): string {
+  return n === 1 ? "The most concrete is below." : `The ${numberWord(n)} most concrete are below.`;
+}
+const SHOWN_RE = /The (?:\w+ )?most concrete (?:is|are) below\.$/;
+
+/**
+ * The summary and its claim, worded for the findings the report actually shows. Built with
+ * three, a teaser can lose one in verification; its summary must then say "two", not "three".
+ */
+export function withShownCount<T extends Pick<TeaserData, "summary" | "findings" | "claims">>(d: T): T {
+  const n = d.findings.length;
+  if (!SHOWN_RE.test(d.summary[1])) return d;
+  const line = d.summary[1].replace(SHOWN_RE, shownLine(n));
+  if (line === d.summary[1]) return d;
+  return {
+    ...d,
+    summary: [d.summary[0], line],
+    claims: d.claims.map((c) => (c.id === "summary-1" ? { ...c, claim: line } : c)),
+  };
+}
+
 type Candidate = { check_key: string; result: string; is_gap: boolean; severity: number; finding_text: string | null; evidence: Evidence[]; source?: "audit" | "site" };
 
 /**
@@ -138,7 +165,7 @@ export async function buildTeaserData(clinicId: string, scoreId: string): Promis
   const listedPart = s.listed_only ? `, and mentioned it without recommending it in ${s.listed_only}` : "";
   const summary: [string, string] = [
     `We asked ${run.assistant} ${plural(s.total, "question", "questions")} a patient in ${c.city} might ask when looking for a ${c.noun}. It recommended ${name} in ${s.recommended} of them${listedPart}.`,
-    `On the ${plural(pagesRead, "page", "pages")} we read on ${c.domain}, we found ${plural(gaps, "gap", "gaps")} in what the site states for patients and for the tools assistants use to read it. The three most concrete are below.`,
+    `On the ${plural(pagesRead, "page", "pages")} we read on ${c.domain}, we found ${plural(gaps, "gap", "gaps")} in what the site states for patients and for the tools assistants use to read it. ${shownLine(findings.length)}`,
   ];
   claims.push({ id: "summary-0", where: "summary", claim: summary[0], evidence: [{ kind: "answer_quote", label: `score ${s.recommended}/${s.total}, listed ${s.listed_only}` }] });
   claims.push({ id: "summary-1", where: "summary", claim: summary[1], evidence: [{ kind: "pages_read", label: `${pagesRead} pages (audit ${audit.pages_read.length}, site test ${site.pages}); ${gaps} confirmed gaps` }] });

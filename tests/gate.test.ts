@@ -116,15 +116,44 @@ describe("teaser and verification gate", () => {
     expect(v.passed).toBe(false);
   });
 
-  it("removes a finding whose quote is no longer on the page, then holds with fewer than three", async () => {
+  it("removes a finding whose quote is no longer on the page; two left still pass, worded for two", async () => {
     const s = await setup();
+    expect(s.data.summary[1]).toMatch(/The three most concrete are below\.$/);
     await db()`update page_cache set body = '<html><body>Hours vary.</body></html>' where url='https://maplegrove.example/contact/'`;
     // only the first three findings are in the teaser; removing one leaves two
     const v = await verifyTeaser({ data: s.data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
     expect(v.removed.map((r) => r.what)).toContain("Hours that disagree");
     expect(v.data.findings).toHaveLength(2);
-    expect(v.flags.map((f) => f.code)).toContain("fewer_than_three_findings");
+    expect(v.flags.filter((f) => f.severity === "block")).toEqual([]);
+    expect(v.passed).toBe(true);
+    // the summary and its claim say two, the report heading says two, and the email promises no third finding
+    expect(v.data.summary[1]).toMatch(/The two most concrete are below\.$/);
+    expect(v.data.claims.find((c) => c.id === "summary-1")?.claim).toBe(v.data.summary[1]);
+    expect(renderTeaser(v.data)).toContain("Two things we found on your website");
+    const email = buildFirstEmail(v.data, { toEmail: "info@maplegrove.example", sourceUrl: "https://maplegrove.example/", reportUrl: "https://intheanswer.test/r/tok" });
+    expect(email.bodyText).toContain("The free report has every question and who was named:");
+    expect(email.bodyText).not.toMatch(/third finding/);
+  });
+
+  it("holds when only one finding survives", async () => {
+    const s = await setup();
+    const strict: ModelVerifier = async (items) => ({
+      verdicts: items.map((i) => ({ id: i.id, supported: !(i.id === "finding-1" || i.id === "finding-2"), issue: "overstated" as const, explanation: "test" })),
+      usage: null,
+      costUsd: 0,
+    });
+    const v = await verifyTeaser({ data: s.data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: strict });
+    expect(v.data.findings).toHaveLength(1);
+    expect(v.flags.map((f) => f.code)).toContain("too_few_findings");
     expect(v.passed).toBe(false);
+  });
+
+  it("three findings: the email still promises the third, and the report says three", async () => {
+    const s = await setup();
+    const v = await verifyTeaser({ data: s.data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: allSupported });
+    expect(v.data.summary[1]).toMatch(/The three most concrete are below\.$/);
+    expect(renderTeaser(v.data)).toContain("Three things we found on your website");
+    expect(s.draft.bodyText).toContain("The free report has every question, who was named, and a third finding:");
   });
 
   it("holds when a could-not-verify check is used as a finding", async () => {
@@ -150,7 +179,7 @@ describe("teaser and verification gate", () => {
     expect(v.removed[0].what).toContain("Invented Dental Group");
   });
 
-  it("model pass: an unsupported finding is removed; an unsupported summary holds", async () => {
+  it("model pass: an unsupported finding is removed; an unsupported summary still holds", async () => {
     const s = await setup();
     const strict: ModelVerifier = async (items) => ({
       verdicts: items.map((i) => ({
@@ -164,7 +193,8 @@ describe("teaser and verification gate", () => {
     });
     const v = await verifyTeaser({ data: s.data, draft: s.draft, scoreId: s.scoreId, live: false, withModel: true, verifier: strict });
     expect(v.data.findings).toHaveLength(2);
-    expect(v.flags.map((f) => f.code)).toEqual(expect.arrayContaining(["verifier_overstated", "fewer_than_three_findings"]));
+    expect(v.flags.map((f) => f.code)).toContain("verifier_overstated");
+    expect(v.flags.map((f) => f.code)).not.toContain("too_few_findings");
     expect(v.passed).toBe(false);
   });
 
